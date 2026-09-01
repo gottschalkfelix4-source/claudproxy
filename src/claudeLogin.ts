@@ -37,6 +37,9 @@ interface Session {
   /** Output length when the code was submitted, to read only what came after. */
   codeMark: number;
   codeTimer: NodeJS.Timeout | null;
+  /** Credential file mtime before the attempt, to detect a successful write. */
+  credMtimeBefore: number;
+  poll: NodeJS.Timeout | null;
 }
 
 const SESSION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -56,6 +59,8 @@ function blank(): Session {
     timer: null,
     codeMark: 0,
     codeTimer: null,
+    credMtimeBefore: 0,
+    poll: null,
   };
 }
 
@@ -141,6 +146,8 @@ function finish(state: LoginState, message: string): void {
   session.timer = null;
   if (session.codeTimer) clearTimeout(session.codeTimer);
   session.codeTimer = null;
+  if (session.poll) clearInterval(session.poll);
+  session.poll = null;
   if (session.proc && !session.proc.killed) session.proc.kill("SIGKILL");
   session.proc = null;
 }
@@ -166,6 +173,7 @@ export function start(): Promise<{ url: string }> {
   session.startedAt = Date.now();
 
   const mtimeBefore = credentialsMtime();
+  session.credMtimeBefore = mtimeBefore;
 
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
@@ -221,6 +229,14 @@ export function start(): Promise<{ url: string }> {
       const token = extractToken(session.output);
       if (token && session.state !== "done") {
         persist(token);
+        return;
+      }
+
+      // The credential file is the ground truth: the CLI may store it without
+      // ever printing a token we can recognise.
+      if (session.state === "exchanging" && credentialsMtime() > mtimeBefore) {
+        finish("done", "Anmeldung erfolgreich. Die Zugangsdaten sind gespeichert.");
+        adoptStoredToken();
         return;
       }
 
@@ -290,11 +306,14 @@ export function submitCode(code: string): void {
   session.codeMark = session.output.length;
   session.message = null;
   session.state = "exchanging";
-  session.proc.stdin.write(clean + "\n");
 
-  // The CLI stays silent while it talks to the OAuth server, and on some
-  // failures it never says anything at all — so cap the wait and hand control
-  // back instead of leaving the UI on "checking…" forever.
+  // Carriage return, not newline. The CLI puts the PTY in raw mode and only
+  // treats CR as Enter — a bare LF is swallowed and the code is never
+  // submitted, which looks exactly like the server never answering.
+  session.proc.stdin.write(clean + "\r");
+
+  // The CLI says nothing while it talks to the OAuth server, so cap the wait
+  // and hand control back instead of leaving the UI on "checking…" forever.
   if (session.codeTimer) clearTimeout(session.codeTimer);
   session.codeTimer = setTimeout(() => {
     if (session.state === "exchanging") {
@@ -305,26 +324,64 @@ export function submitCode(code: string): void {
     }
   }, 90_000);
   session.codeTimer.unref?.();
+
+  // Watch the credential file directly: a successful exchange may write it
+  // without the CLI printing anything further.
+  if (session.poll) clearInterval(session.poll);
+  session.poll = setInterval(() => {
+    if (session.state !== "exchanging") return;
+    if (credentialsMtime() > session.credMtimeBefore) {
+      finish("done", "Anmeldung erfolgreich. Die Zugangsdaten sind gespeichert.");
+      adoptStoredToken();
+    }
+  }, 2000);
+  session.poll.unref?.();
 }
 
 /**
- * Detects a rejected code: the CLI either prints an error or simply asks for
- * the code again rather than exiting.
+ * Detects a rejected code.
+ *
+ * On failure the CLI prints "OAuth error: Invalid code..." followed by
+ * "Press Enter to retry" and then blocks on that prompt. Matching is done
+ * without relying on spaces: the TUI positions words with cursor escapes, so
+ * the stripped transcript reads "Invalidcode" and "makesure".
  */
 function checkCodeRejected(): void {
-  const after = stripAnsi(session.output.slice(session.codeMark));
-  const rejected =
-    /paste code here/i.test(after) ||
-    /invalid|expired|failed|not authorized|unauthorized/i.test(after);
-  if (!rejected) return;
+  const after = stripAnsi(session.output.slice(session.codeMark)).replace(/\s+/g, " ");
 
-  const detail = after
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => /invalid|expired|failed|unauthorized/i.test(l))
-    .pop();
+  const failed =
+    /oauth\s*error/i.test(after) ||
+    /invalid\s*code/i.test(after) ||
+    /expired/i.test(after) ||
+    /unauthorized|not\s*authorized/i.test(after);
 
-  backToCodeEntry(detail || "Der Code wurde nicht akzeptiert. Bitte erneut versuchen.");
+  if (!failed) return;
+
+  // Answer the retry prompt so the CLI returns to the code question; otherwise
+  // it sits there and the next attempt has nowhere to go.
+  if (/press\s*enter\s*to\s*retry/i.test(after) && session.proc) {
+    session.proc.stdin.write("\r");
+    session.codeMark = session.output.length;
+  }
+
+  backToCodeEntry(
+    /invalid\s*code/i.test(after)
+      ? "Der Code wurde abgelehnt. Achte darauf, den vollständigen Code zu kopieren — " +
+          "er ist länger, als das Feld auf der Claude-Seite zeigt."
+      : "Die Anmeldung wurde abgelehnt. Öffne den Link erneut und versuche es noch einmal.",
+  );
+}
+
+/** Reads the token the CLI stored, so the settings field matches the login. */
+function adoptStoredToken(): void {
+  try {
+    const raw = fs.readFileSync(credentialsPath(), "utf8");
+    const token = extractToken(raw) ?? /"access_?[Tt]oken"\s*:\s*"([^"]+)"/.exec(raw)?.[1];
+    if (token) applySetting("CLAUDE_CODE_OAUTH_TOKEN", token);
+    applySetting("BACKEND", "claude-code");
+  } catch {
+    // The credential file alone is enough for the engine; the setting is a convenience.
+  }
 }
 
 /** Returns to step 2 so the user can retry without restarting the whole flow. */

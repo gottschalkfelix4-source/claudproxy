@@ -121,9 +121,14 @@ Abhängigkeit), liest die OAuth-URL aus dessen Ausgabe und reicht den Code, den 
 einfügst, an dessen Eingabe weiter. Der Token landet anschließend in den
 Einstellungen, die Zugangsdaten zusätzlich im gemounteten `.claude`-Verzeichnis.
 
-Kommt auf den Code binnen 90 Sekunden keine Antwort, kehrt das Formular mit einem
-Hinweis zur Code-Eingabe zurück, statt hängen zu bleiben — der Link bleibt gültig,
-ein erneuter Versuch ist ohne Neustart des Vorgangs möglich.
+Der Code wird mit einem Carriage Return abgeschickt, nicht mit einem Newline: die
+CLI schaltet das Pseudo-Terminal in den Raw-Modus und wertet nur CR als Enter — ein
+LF wird verschluckt, und der Code kommt nie an.
+
+Lehnt der OAuth-Server den Code ab, meldet die CLI das und wartet auf „Press Enter
+to retry"; der Proxy beantwortet diesen Prompt selbst, sodass das Formular sofort
+wieder aufnahmebereit ist. Kommt binnen 90 Sekunden gar keine Antwort, kehrt es
+ebenfalls zur Code-Eingabe zurück. Der Link bleibt in beiden Fällen gültig.
 
 ---
 
@@ -392,9 +397,12 @@ entfernt Sampling-Parameter. Falls doch, den Fehlertext aus den Logs melden.
 überschrieben; dort steht dann *hier gesetzt* daneben. Ein Klick auf *Zurücksetzen*
 gibt den Umgebungswert wieder frei.
 
+**„Der Code wurde abgelehnt"** — Der Code auf der Claude-Seite ist länger, als das
+Feld dort anzeigt. Mit dem Kopier-Symbol daneben kopieren statt ihn zu markieren.
+Ein neuer Versuch ist sofort möglich, der Link bleibt gültig.
+
 **Die Anmeldung hängt bei „Code wird geprüft"** — Nach 90 Sekunden ohne Antwort
-kehrt das Formular von selbst zur Code-Eingabe zurück. Meist wurde der Code
-unvollständig eingefügt.
+kehrt das Formular von selbst zur Code-Eingabe zurück.
 
 ---
 
