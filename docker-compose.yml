@@ -1,0 +1,40 @@
+services:
+  claude-proxy:
+    build: .
+    image: claude-openai-proxy:latest
+    container_name: claude-proxy
+    restart: unless-stopped
+
+    ports:
+      # Host:Container. Bind to 127.0.0.1 if the proxy should stay local:
+      #   "127.0.0.1:3000:3000"
+      - "3000:3000"
+
+    env_file:
+      - .env
+
+    environment:
+      # Ownership applied to the volumes below, and the user the process runs
+      # as. Override in .env if your host uses different ids.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+
+    volumes:
+      # SQLite database: API keys, usage log, settings.
+      - proxy-data:/data
+      # Claude Code credentials. Survives container rebuilds, so you only
+      # authenticate once. To reuse an already-authenticated host login,
+      # replace this line with:
+      #   - ${HOME}/.claude:/home/node/.claude
+      - claude-config:/home/node/.claude
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  proxy-data:
+  claude-config:

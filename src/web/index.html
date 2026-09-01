@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claude Proxy</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23c8643c'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <!-- login -->
+    <div id="login" class="login-wrap hidden">
+      <form class="login-card" id="login-form">
+        <h1>Claude Proxy</h1>
+        <p class="sub">Melde dich an, um Keys und Nutzung zu verwalten.</p>
+        <div id="login-error" class="banner err hidden"></div>
+        <label class="field">
+          <span class="lbl">Passwort</span>
+          <input type="password" id="login-password" autocomplete="current-password" autofocus />
+        </label>
+        <button class="primary" style="width: 100%" type="submit">Anmelden</button>
+      </form>
+    </div>
+
+    <!-- app -->
+    <div id="app" class="shell hidden">
+      <nav class="sidebar">
+        <div class="brand"><span class="dot"></span><span>Claude Proxy</span></div>
+        <button class="nav-item active" data-page="dashboard">
+          <span class="label">Übersicht</span>
+        </button>
+        <button class="nav-item" data-page="keys"><span class="label">API-Keys</span></button>
+        <button class="nav-item" data-page="logs"><span class="label">Logs</span></button>
+        <button class="nav-item" data-page="playground">
+          <span class="label">Playground</span>
+        </button>
+        <button class="nav-item" data-page="connect"><span class="label">Anbinden</span></button>
+        <div class="sidebar-foot">
+          <button class="ghost" id="logout" style="width: 100%">Abmelden</button>
+        </div>
+      </nav>
+
+      <main class="main">
+        <!-- dashboard -->
+        <section class="page" id="page-dashboard">
+          <div class="page-head">
+            <div>
+              <h2>Übersicht</h2>
+              <p id="dash-sub">Status und Nutzung des Proxys.</p>
+            </div>
+            <div class="row">
+              <select id="range" style="width: auto">
+                <option value="1">24 Stunden</option>
+                <option value="7" selected>7 Tage</option>
+                <option value="30">30 Tage</option>
+                <option value="90">90 Tage</option>
+              </select>
+              <button id="refresh">Aktualisieren</button>
+            </div>
+          </div>
+
+          <div id="engine-banner"></div>
+
+          <div class="grid cols-4" style="margin-bottom: 14px">
+            <div class="card stat">
+              <div class="label">Requests</div>
+              <div class="value" id="s-requests">–</div>
+              <div class="sub" id="s-errors"></div>
+            </div>
+            <div class="card stat">
+              <div class="label">Tokens</div>
+              <div class="value" id="s-tokens">–</div>
+              <div class="sub" id="s-tokens-split"></div>
+            </div>
+            <div class="card stat">
+              <div class="label">Kosten (geschätzt)</div>
+              <div class="value" id="s-cost">–</div>
+              <div class="sub">nach Listenpreis</div>
+            </div>
+            <div class="card stat">
+              <div class="label">Ø Dauer</div>
+              <div class="value" id="s-duration">–</div>
+              <div class="sub">pro Request</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom: 14px">
+            <h3>Requests pro Tag</h3>
+            <div class="chart" id="chart"></div>
+            <div class="chart-labels" id="chart-labels"></div>
+          </div>
+
+          <div class="grid cols-2">
+            <div class="card">
+              <h3>Nach Modell</h3>
+              <div class="table-wrap"><table id="by-model"></table></div>
+            </div>
+            <div class="card">
+              <h3>Nach API-Key</h3>
+              <div class="table-wrap"><table id="by-key"></table></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- keys -->
+        <section class="page hidden" id="page-keys">
+          <div class="page-head">
+            <div>
+              <h2>API-Keys</h2>
+              <p>Ein Key pro Anwendung. Das Geheimnis wird nur einmal angezeigt.</p>
+            </div>
+            <button class="primary" id="new-key">Neuer Key</button>
+          </div>
+          <div class="card">
+            <div class="table-wrap"><table id="keys-table"></table></div>
+          </div>
+        </section>
+
+        <!-- logs -->
+        <section class="page hidden" id="page-logs">
+          <div class="page-head">
+            <div>
+              <h2>Logs</h2>
+              <p>Die letzten Requests über alle Keys.</p>
+            </div>
+            <div class="row">
+              <select id="log-key" style="width: auto"></select>
+              <button id="refresh-logs">Aktualisieren</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="table-wrap"><table id="logs-table"></table></div>
+          </div>
+        </section>
+
+        <!-- playground -->
+        <section class="page hidden" id="page-playground">
+          <div class="page-head">
+            <div>
+              <h2>Playground</h2>
+              <p>Testet das Backend direkt, ohne API-Key.</p>
+            </div>
+          </div>
+          <div class="grid cols-2">
+            <div class="card">
+              <label class="field">
+                <span class="lbl">Modell</span>
+                <select id="pg-model"></select>
+              </label>
+              <label class="field">
+                <span class="lbl">System-Prompt</span>
+                <textarea id="pg-system" style="min-height: 60px" placeholder="optional"></textarea>
+              </label>
+              <label class="field">
+                <span class="lbl">Nachricht</span>
+                <textarea id="pg-prompt">Antworte in einem Satz: Was ist ein Reverse Proxy?</textarea>
+              </label>
+              <button class="primary" id="pg-send">Senden</button>
+            </div>
+            <div class="card">
+              <h3>Antwort</h3>
+              <div class="chat-log" id="pg-output"><span class="muted">Noch nichts gesendet.</span></div>
+              <div class="muted" id="pg-meta" style="margin-top: 10px; font-size: 12px"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- connect -->
+        <section class="page hidden" id="page-connect">
+          <div class="page-head">
+            <div>
+              <h2>Anbinden</h2>
+              <p>Basis-URL und Key in eine beliebige OpenAI-kompatible Anwendung eintragen.</p>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom: 14px">
+            <h3>Zugangsdaten</h3>
+            <div class="grid cols-2">
+              <label class="field">
+                <span class="lbl">Base URL</span>
+                <input id="c-base" readonly />
+                <span class="hint">In Docker von anderen Containern aus: http://claude-proxy:3000/v1</span>
+              </label>
+              <label class="field">
+                <span class="lbl">API-Key</span>
+                <input id="c-key" value="sk-cp-…" readonly />
+                <span class="hint">Unter „API-Keys“ erzeugen und hier einsetzen.</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="grid cols-2">
+            <div class="card">
+              <h3>curl</h3>
+              <pre class="snippet" id="snip-curl"></pre>
+            </div>
+            <div class="card">
+              <h3>Python (openai)</h3>
+              <pre class="snippet" id="snip-python"></pre>
+            </div>
+            <div class="card">
+              <h3>Node (openai)</h3>
+              <pre class="snippet" id="snip-node"></pre>
+            </div>
+            <div class="card">
+              <h3>Umgebungsvariablen</h3>
+              <pre class="snippet" id="snip-env"></pre>
+              <p class="muted" style="font-size: 12px; margin-bottom: 0">
+                Funktioniert für die meisten Tools, die <code>OPENAI_BASE_URL</code> lesen —
+                Aider, LangChain, LlamaIndex, Continue, Open WebUI.
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="modal-root"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

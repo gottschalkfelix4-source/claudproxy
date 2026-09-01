@@ -1,0 +1,237 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>claude-proxy</Name>
+  <Repository>ghcr.io/gottschalkfelix4-source/claudproxy:latest</Repository>
+  <Registry>https://github.com/gottschalkfelix4-source/claudproxy/pkgs/container/claudproxy</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/gottschalkfelix4-source/claudproxy/issues</Support>
+  <Project>https://github.com/gottschalkfelix4-source/claudproxy</Project>
+  <Overview>
+    Ein OpenAI-kompatibler Endpunkt vor Claude, mit API-Key-Verwaltung und Web-Interface.&#13;
+    &#13;
+    Jede Anwendung, die die OpenAI-API spricht, kann damit Claude nutzen: Base-URL auf&#13;
+    http://[UNRAID-IP]:3000/v1 setzen, Key eintragen, fertig. Modellnamen wie gpt-4o werden&#13;
+    automatisch auf Claude-Modelle gemappt, die Anwendung muss nicht angepasst werden.&#13;
+    &#13;
+    Zwei Backends:&#13;
+    - claude-code: nutzt ein Claude Pro/Max-Abo (kein Token-Billing). Token einmalig mit&#13;
+      "claude setup-token" erzeugen - siehe Einrichtung unten.&#13;
+    - anthropic-api: nutzt einen Anthropic-API-Key (Abrechnung pro Token, mit Function Calling).&#13;
+    &#13;
+    Zum Ausprobieren ohne Zugangsdaten: BACKEND auf "mock" setzen. Der Proxy antwortet dann&#13;
+    mit Echo-Antworten, sodass sich die Anbindung einer Anwendung vorab testen laesst.&#13;
+    &#13;
+    EINRICHTUNG (Backend claude-code):&#13;
+    1. Container starten, dann auf der Docker-Seite unter dem Container "Console" oeffnen.&#13;
+    2. "claude setup-token" eingeben, die angezeigte URL im Browser oeffnen und anmelden.&#13;
+    3. Den zurueckgegebenen Token hier ins Feld "Claude OAuth Token" eintragen, Container neu starten.&#13;
+    Der Token ist ein Jahr gueltig.&#13;
+    &#13;
+    WEB-INTERFACE: http://[UNRAID-IP]:3000/admin&#13;
+    Ohne gesetztes Admin-Passwort wird beim ersten Start eines erzeugt und ins Container-Log&#13;
+    geschrieben. Dort API-Keys anlegen - je mit Rate-Limit, Budget, Modell-Whitelist und&#13;
+    Ablaufdatum - und die Nutzung pro Key verfolgen.
+  </Overview>
+  <Category>Tools: Productivity: Network:Other</Category>
+  <WebUI>http://[IP]:[PORT:3000]/admin</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/gottschalkfelix4-source/claudproxy/main/unraid/claude-proxy.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/gottschalkfelix4-source/claudproxy/main/unraid/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+
+  <Config
+    Name="WebUI / API Port"
+    Target="3000"
+    Default="3000"
+    Mode="tcp"
+    Description="Port fuer den OpenAI-Endpunkt (/v1) und das Web-Interface (/admin)."
+    Type="Port"
+    Display="always"
+    Required="true"
+    Mask="false">3000</Config>
+
+  <Config
+    Name="Daten (Keys, Nutzung)"
+    Target="/data"
+    Default="/mnt/user/appdata/claude-proxy/data"
+    Mode="rw"
+    Description="SQLite-Datenbank mit API-Keys, Nutzungsstatistik und Einstellungen. Muss erhalten bleiben."
+    Type="Path"
+    Display="always"
+    Required="true"
+    Mask="false">/mnt/user/appdata/claude-proxy/data</Config>
+
+  <Config
+    Name="Claude-Zugangsdaten"
+    Target="/home/node/.claude"
+    Default="/mnt/user/appdata/claude-proxy/claude"
+    Mode="rw"
+    Description="Ablage der Claude-Code-Anmeldung. Wird von 'claude setup-token' beschrieben und ueberlebt Container-Updates."
+    Type="Path"
+    Display="always"
+    Required="true"
+    Mask="false">/mnt/user/appdata/claude-proxy/claude</Config>
+
+  <Config
+    Name="Backend"
+    Target="BACKEND"
+    Default="claude-code"
+    Mode=""
+    Description="claude-code = Claude Pro/Max-Abo (kein Token-Billing) | anthropic-api = Anthropic-API-Key (pro Token, mit Function Calling) | mock = Echo-Backend zum Testen ohne Zugangsdaten."
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="false">claude-code</Config>
+
+  <Config
+    Name="Claude OAuth Token"
+    Target="CLAUDE_CODE_OAUTH_TOKEN"
+    Default=""
+    Mode=""
+    Description="Nur fuer Backend 'claude-code'. Im Container-Terminal mit 'claude setup-token' erzeugen und hier eintragen. Leer lassen, wenn stattdessen ein bereits angemeldetes .claude-Verzeichnis gemountet wird."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"/>
+
+  <Config
+    Name="Anthropic API Key"
+    Target="ANTHROPIC_API_KEY"
+    Default=""
+    Mode=""
+    Description="Nur fuer Backend 'anthropic-api'. Aus der Anthropic Console."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"/>
+
+  <Config
+    Name="Admin-Passwort"
+    Target="ADMIN_PASSWORD"
+    Default=""
+    Mode=""
+    Description="Passwort fuer das Web-Interface. Leer lassen, um beim ersten Start eines erzeugen zu lassen - es steht dann im Container-Log."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"/>
+
+  <Config
+    Name="Standardmodell"
+    Target="DEFAULT_MODEL"
+    Default="claude-opus-5"
+    Mode=""
+    Description="Modell fuer Requests ohne Modellangabe und fuer unbekannte Modellnamen. Moeglich: claude-opus-5, claude-fable-5, claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false">claude-opus-5</Config>
+
+  <Config
+    Name="Reasoning Effort"
+    Target="DEFAULT_EFFORT"
+    Default=""
+    Mode=""
+    Description="Denktiefe: low, medium, high, xhigh oder max. Leer = API-Standard. Niedrigere Werte senken Latenz und Verbrauch."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+
+  <Config
+    Name="API-Key erforderlich"
+    Target="REQUIRE_AUTH"
+    Default="true"
+    Mode=""
+    Description="Auf 'false' setzen, um /v1 ohne API-Key freizugeben. Nur in einem vertrauenswuerdigen Netz sinnvoll."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">true</Config>
+
+  <Config
+    Name="Max Tokens Limit"
+    Target="MAX_TOKENS_LIMIT"
+    Default="64000"
+    Mode=""
+    Description="Obergrenze fuer max_tokens pro Request. Hoehere Client-Werte werden darauf gekappt."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">64000</Config>
+
+  <Config
+    Name="Standard Max Tokens"
+    Target="DEFAULT_MAX_TOKENS"
+    Default="16000"
+    Mode=""
+    Description="Wird verwendet, wenn der Client kein max_tokens sendet."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">16000</Config>
+
+  <Config
+    Name="Gedankengang mitliefern"
+    Target="EXPOSE_THINKING"
+    Default="false"
+    Mode=""
+    Description="Liefert Claudes zusammengefassten Gedankengang als Feld 'reasoning_content'. Kostet zusaetzliche Output-Tokens; die meisten OpenAI-Clients ignorieren das Feld."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">false</Config>
+
+  <Config
+    Name="Log-Aufbewahrung (Tage)"
+    Target="LOG_RETENTION_DAYS"
+    Default="30"
+    Mode=""
+    Description="Wie lange Request-Logs behalten werden. 0 = nie loeschen."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">30</Config>
+
+  <Config
+    Name="PUID"
+    Target="PUID"
+    Default="99"
+    Mode=""
+    Description="Benutzer-ID, unter der der Dienst laeuft und der die gemounteten Verzeichnisse gehoeren. Unraid-Standard ist 99 (nobody)."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">99</Config>
+
+  <Config
+    Name="PGID"
+    Target="PGID"
+    Default="100"
+    Mode=""
+    Description="Gruppen-ID passend zu PUID. Unraid-Standard ist 100 (users)."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">100</Config>
+
+  <Config
+    Name="Hinter Reverse Proxy"
+    Target="TRUST_PROXY"
+    Default="false"
+    Mode=""
+    Description="Auf 'true' setzen, wenn ein Reverse Proxy (z. B. SWAG, NPM) davor haengt, damit im Log die echte Client-IP erscheint."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">false</Config>
+
+</Container>
