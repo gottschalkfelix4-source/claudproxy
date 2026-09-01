@@ -436,6 +436,15 @@ und danach nichts** — Das war ein Fehler in Versionen vor dem 01.09.2026: das 
 wurde zusammen mit dem Code geschrieben und ab etwa 48 Zeichen als Teil eines
 Einfügevorgangs gewertet. Image aktualisieren.
 
+**„OAuth access token is invalid" bei jeder Anfrage** — Versionen vor dem
+01.09.2026 haben den Token aus der Terminalausgabe gelesen und dabei am
+Zeilenumbruch abgeschnitten (ein Token ist rund 108 Zeichen, das Terminal bricht
+bei 80 um). Der unvollständige Wert stand dann in den Einstellungen und
+überschrieb die intakten Zugangsdaten im Container. Nach dem Update wird das beim
+Start automatisch korrigiert — der Startlog vermerkt es. Falls nicht: unter
+Einstellungen beim Feld *Claude OAuth-Token* auf *Zurücksetzen* klicken, dann
+greifen die Zugangsdaten aus der Anmeldung.
+
 **„Der Code wurde abgelehnt"** — Der Code auf der Claude-Seite ist länger, als das
 Feld dort anzeigt. Mit dem Kopier-Symbol daneben kopieren statt ihn zu markieren.
 Ein neuer Versuch ist sofort möglich, der Link bleibt gültig.

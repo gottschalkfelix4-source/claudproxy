@@ -63,6 +63,33 @@ test("finds a long-lived token in the transcript", () => {
   assert.equal(extractToken("no token here"), null);
 });
 
+test("recovers a token the terminal wrapped across lines", () => {
+  // A real token is ~108 characters and an 80-column terminal splits it.
+  // Matching the raw text stopped at the newline and stored a truncated token,
+  // which the API then rejected as invalid — the failure this guards against.
+  const token = "sk-ant-oat01-" + "B".repeat(95);
+  const wrapped = token.slice(0, 80) + "\r\n" + token.slice(80);
+
+  const got = extractToken(wrapped);
+  assert.equal(got, token);
+  assert.equal(got.length, 108);
+});
+
+test("a newline after a short line ends the token", () => {
+  const token = "sk-ant-oat01-" + "C".repeat(30);
+  assert.equal(extractToken(`${token}\r\nDone`), token);
+});
+
+test("does not glue the following line onto a wrapped token", () => {
+  // How it really looks: 80 columns, the 28-character remainder, then ordinary
+  // output that must not end up inside the token.
+  const token = "sk-ant-oat01-" + "D".repeat(95);
+  const transcript =
+    token.slice(0, 80) + "\r\n" + token.slice(80) + "\r\nSaved to ~/.claude";
+
+  assert.equal(extractToken(transcript), token);
+});
+
 /**
  * Rejection is matched on space-insensitive patterns because the TUI positions
  * words with cursor escapes; this guards the patterns used in checkCodeRejected.

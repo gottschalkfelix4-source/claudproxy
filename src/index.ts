@@ -9,6 +9,7 @@ import { pruneOldRequests } from "./db.js";
 import { engineStatus } from "./engines/index.js";
 import { settings } from "./settings.js";
 import { BUILD } from "./version.js";
+import { reconcileStoredToken } from "./claudeLogin.js";
 import { adminRouter } from "./routes/admin.js";
 import { v1Router } from "./routes/v1.js";
 
@@ -138,6 +139,11 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 const { generated } = initAdminPassword();
 
+// Repairs a token that an earlier version stored truncated (the terminal wraps
+// at its width and the copy scraped from it lost its tail), which otherwise
+// fails every request with "OAuth access token is invalid".
+const tokenState = reconcileStoredToken();
+
 fs.mkdirSync(config.workDir, { recursive: true });
 
 const prune = () => pruneOldRequests(settings.logRetentionDays);
@@ -155,6 +161,10 @@ const server = app.listen(config.port, config.host, () => {
   ];
   if (!status.ready) banner.push(`              ${status.detail}`);
   banner.push(`  Auth        ${settings.requireAuth ? "API key required" : "DISABLED"}`);
+  if (tokenState === "repaired") {
+    banner.push("  Hinweis     Ein unvollständig gespeicherter Claude-Token wurde aus den");
+    banner.push("              Zugangsdaten im Container korrigiert.");
+  }
   if (generated) {
     banner.push(
       "",

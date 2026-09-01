@@ -16,7 +16,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
-import { applySetting } from "./settings.js";
+import { applySetting, getOverride } from "./settings.js";
 
 export type LoginState =
   | "idle"
@@ -101,8 +101,71 @@ export function extractAuthUrl(output: string): string | null {
 
 /** Long-lived tokens produced by `claude setup-token`. */
 export function extractToken(output: string): string | null {
-  const m = /sk-ant-oat01-[A-Za-z0-9_-]{20,}/.exec(stripAnsi(output));
+  // A terminal wraps at its width, so a ~108-character token arrives split
+  // across lines. Matching the raw text stops at the first newline and yields a
+  // silently truncated token, which the API then rejects as invalid.
+  //
+  // Only wrapping newlines are joined: one that follows a long unbroken run of
+  // token characters and is followed by more of them. A newline after a short
+  // line is a real line ending, so the text that comes next — "Saved to
+  // ~/.claude" and the like — is not glued onto the token.
+  const unwrapped = stripAnsi(output).replace(
+    /([A-Za-z0-9_-]{60,})\n(?=[A-Za-z0-9_-])/g,
+    "$1",
+  );
+  const m = /sk-ant-oat01-[A-Za-z0-9_-]{20,}/.exec(unwrapped);
   return m ? m[0] : null;
+}
+
+/**
+ * The token the CLI itself stored. Authoritative over anything scraped from a
+ * terminal, because it never passed through a line-wrapping renderer.
+ */
+export function tokenFromCredentials(): string | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(credentialsPath(), "utf8")) as Record<
+      string,
+      Record<string, unknown> | undefined
+    >;
+    const candidates = [
+      parsed?.claudeAiOauth?.accessToken,
+      (parsed as Record<string, unknown>)?.accessToken,
+      parsed?.claudeAiOauth?.access_token,
+    ];
+    for (const c of candidates) {
+      if (typeof c === "string" && c.startsWith("sk-ant-")) return c;
+    }
+  } catch {
+    // No file, or not the shape we expect.
+  }
+  return null;
+}
+
+/**
+ * Makes the stored setting agree with the credential file.
+ *
+ * Runs at startup so an installation that recorded a truncated token — the
+ * previous behaviour — repairs itself instead of failing every request with
+ * "OAuth access token is invalid".
+ */
+export function reconcileStoredToken(): "unchanged" | "repaired" {
+  const fromFile = tokenFromCredentials();
+  if (!fromFile) return "unchanged";
+
+  const stored = getOverride("CLAUDE_CODE_OAUTH_TOKEN");
+  if (stored === fromFile) return "unchanged";
+
+  // Repair exactly one situation: a stored token that is a strict prefix of the
+  // one on disk, i.e. the terminal-wrapped copy this proxy used to save. A
+  // token the operator entered themselves is something else entirely and is
+  // left untouched, even though the credential file disagrees with it.
+  const isTruncatedCopy = Boolean(stored) && fromFile.startsWith(stored!);
+  if (!stored || isTruncatedCopy) {
+    applySetting("CLAUDE_CODE_OAUTH_TOKEN", fromFile);
+    return "repaired";
+  }
+
+  return "unchanged";
 }
 
 function credentialsPath(): string {
@@ -451,8 +514,7 @@ function checkCodeRejected(): void {
 /** Reads the token the CLI stored, so the settings field matches the login. */
 function adoptStoredToken(): void {
   try {
-    const raw = fs.readFileSync(credentialsPath(), "utf8");
-    const token = extractToken(raw) ?? /"access_?[Tt]oken"\s*:\s*"([^"]+)"/.exec(raw)?.[1];
+    const token = tokenFromCredentials();
     if (token) applySetting("CLAUDE_CODE_OAUTH_TOKEN", token);
     applySetting("BACKEND", "claude-code");
   } catch {
@@ -470,7 +532,10 @@ function backToCodeEntry(message: string): void {
 
 function persist(token: string): void {
   try {
-    applySetting("CLAUDE_CODE_OAUTH_TOKEN", token);
+    // Prefer what the CLI wrote to disk: the terminal copy can have been
+    // wrapped, and a truncated token is accepted here but rejected by the API.
+    const authoritative = tokenFromCredentials() ?? token;
+    applySetting("CLAUDE_CODE_OAUTH_TOKEN", authoritative);
     applySetting("BACKEND", "claude-code");
     finish("done", "Anmeldung erfolgreich. Der Token ist gespeichert.");
   } catch (err) {
