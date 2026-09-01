@@ -745,6 +745,7 @@ async function loadSettings() {
   state.fields = fields;
   renderSettings(fields);
   refreshLoginUi();
+  renderTokenInfo();
 }
 
 function renderSettings(fields) {
@@ -865,6 +866,46 @@ $("#save-settings").addEventListener("click", async () => {
 /* ---------------- Claude sign-in ---------------- */
 
 let loginPoll = null;
+
+async function renderTokenInfo() {
+  const box = $("#token-info");
+  if (!box) return;
+  try {
+    const t = await api("/token-info");
+    const bad = t.present && (!t.hasExpectedPrefix || !t.looksComplete);
+    const kind = bad ? "err" : t.present || t.credentialsFile.exists ? "ok" : "warn";
+
+    const rows = [
+      ["Token hinterlegt", t.present ? `ja (${t.length} Zeichen)` : "nein"],
+      ["Kennung", t.fingerprint || "–"],
+      ["Quelle", t.source === "settings" ? "hier gesetzt" : t.source === "environment" ? "Umgebung" : "–"],
+      [
+        "Zugangsdaten im Container",
+        t.credentialsFile.exists
+          ? t.credentialsFile.matchesSetting
+            ? "vorhanden, stimmen überein"
+            : "vorhanden, weichen ab"
+          : "keine",
+      ],
+    ];
+    if (t.credentialsFile.expiresAt) {
+      rows.push(["Gültig bis", new Date(t.credentialsFile.expiresAt).toLocaleString("de-DE")]);
+    }
+
+    box.innerHTML =
+      `<div class="banner ${kind}">${esc(t.verdict)}</div>` +
+      (t.advice?.length
+        ? `<ul class="muted" style="font-size:12.5px;margin:-8px 0 12px;padding-left:20px">${t.advice
+            .map((a) => `<li>${esc(a)}</li>`)
+            .join("")}</ul>`
+        : "") +
+      `<div class="table-wrap"><table><tbody>${rows
+        .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="right">${esc(v)}</td></tr>`)
+        .join("")}</tbody></table></div>`;
+  } catch {
+    box.innerHTML = "";
+  }
+}
 
 async function refreshLoginUi() {
   let s;

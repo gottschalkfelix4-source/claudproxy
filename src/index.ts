@@ -10,6 +10,7 @@ import { engineStatus } from "./engines/index.js";
 import { settings } from "./settings.js";
 import { BUILD } from "./version.js";
 import { reconcileStoredToken } from "./claudeLogin.js";
+import { describeToken } from "./tokenInfo.js";
 import { adminRouter } from "./routes/admin.js";
 import { v1Router } from "./routes/v1.js";
 
@@ -55,11 +56,22 @@ app.use((req, res, next) => {
  */
 app.get("/health", (_req, res) => {
   const status = engineStatus();
+  const token = describeToken();
   res.status(200).json({
     status: "ok",
     backendReady: status.ready,
     backend: status.backend,
     detail: status.detail,
+    // Enough to tell a malformed credential from a working one without
+    // exposing anything usable — a rejected token is otherwise invisible from
+    // outside the admin UI, which is what made this hard to diagnose remotely.
+    credentials: {
+      configured: token.present || token.credentialsFile.exists,
+      looksComplete: token.present ? token.looksComplete : null,
+      length: token.length || null,
+      credentialsFile: token.credentialsFile.exists,
+      note: token.verdict,
+    },
     version: BUILD.version,
     commit: BUILD.commit,
     builtAt: BUILD.builtAt,
