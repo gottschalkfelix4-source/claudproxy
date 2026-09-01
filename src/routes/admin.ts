@@ -32,7 +32,7 @@ import { hashKey, setSetting } from "../db.js";
 import os from "node:os";
 import { BUILD } from "../version.js";
 import { runDiagnostics } from "../diagnostics.js";
-import { describeToken } from "../tokenInfo.js";
+import { describeToken, verifyCredentials } from "../tokenInfo.js";
 
 export const adminRouter = Router();
 
@@ -448,4 +448,9 @@ adminRouter.get("/diagnostics", async (_req, res) => {
 /** What is known about the stored credentials — never the credentials themselves. */
 adminRouter.get("/token-info", (_req, res) => {
   res.json(describeToken());
+});
+
+/** Sends one real request to establish whether the credentials actually work. */
+adminRouter.post("/verify-credentials", async (_req, res) => {
+  res.json(await verifyCredentials());
 });

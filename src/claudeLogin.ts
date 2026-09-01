@@ -530,11 +530,35 @@ function backToCodeEntry(message: string): void {
   session.message = message;
 }
 
+/**
+ * Below this the token cannot be whole: a long-lived token runs about 108
+ * characters, and the failure mode this guards against — a terminal-wrapped
+ * copy — lands at 80.
+ */
+const MIN_TOKEN_LENGTH = 100;
+
 function persist(token: string): void {
   try {
-    // Prefer what the CLI wrote to disk: the terminal copy can have been
-    // wrapped, and a truncated token is accepted here but rejected by the API.
+    // `claude setup-token` never writes a credential file (its persist call
+    // sits in a branch that mode skips), so the transcript is normally the only
+    // copy. Prefer the file anyway for the case where one exists from a real
+    // `claude login`.
     const authoritative = tokenFromCredentials() ?? token;
+
+    // Never store a token that cannot be complete. Saving one produced exactly
+    // the failure this check exists to prevent: a login that reports success
+    // and then rejects every request as "OAuth access token is invalid".
+    if (authoritative.length < MIN_TOKEN_LENGTH) {
+      finish(
+        "error",
+        `Der Token kam unvollständig an (${authoritative.length} statt rund 108 Zeichen) ` +
+          "und wurde deshalb nicht gespeichert. Bitte die Anmeldung wiederholen. " +
+          "Bleibt es dabei, den Token mit `claude setup-token` auf einem anderen Rechner " +
+          "erzeugen und unter Einstellungen von Hand eintragen.",
+      );
+      return;
+    }
+
     applySetting("CLAUDE_CODE_OAUTH_TOKEN", authoritative);
     applySetting("BACKEND", "claude-code");
     finish("done", "Anmeldung erfolgreich. Der Token ist gespeichert.");

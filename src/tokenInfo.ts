@@ -162,3 +162,68 @@ export function describeToken(): TokenInfo {
   );
   return info;
 }
+
+/**
+ * Actually asks Claude whether the credentials work.
+ *
+ * Truncated, expired, revoked and wrong-account all produce the same message,
+ * and length alone cannot tell them apart — so send one real, minimal request
+ * and report what comes back.
+ */
+export async function verifyCredentials(): Promise<{
+  ok: boolean;
+  message: string;
+  detail?: string;
+  durationMs: number;
+}> {
+  const started = Date.now();
+  const { getEngine } = await import("./engines/index.js");
+
+  try {
+    const engine = getEngine("claude-code");
+    engine.assertReady();
+
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 90_000);
+
+    try {
+      await engine.complete(
+        {
+          model: "claude-haiku-4-5",
+          messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+          maxTokens: 1,
+          stream: false,
+        },
+        abort.signal,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+
+    return {
+      ok: true,
+      message: "Die Zugangsdaten funktionieren — Claude hat geantwortet.",
+      durationMs: Date.now() - started,
+    };
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    const info = describeToken();
+
+    let message: string;
+    if (/invalid|unauthorized|401/i.test(raw)) {
+      message = info.looksComplete
+        ? "Der Token wird abgelehnt. Er ist vollständig, also vermutlich abgelaufen " +
+          "oder widerrufen — bitte neu anmelden."
+        : "Der Token wird abgelehnt und ist zu kurz, um vollständig zu sein — " +
+          "bitte neu anmelden.";
+    } else if (/rate.?limit|429/i.test(raw)) {
+      message =
+        "Die Zugangsdaten sind gültig, aber das Limit deines Abos ist gerade erreicht.";
+      return { ok: true, message, detail: raw, durationMs: Date.now() - started };
+    } else {
+      message = "Der Test ist fehlgeschlagen.";
+    }
+
+    return { ok: false, message, detail: raw, durationMs: Date.now() - started };
+  }
+}

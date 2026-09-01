@@ -44,6 +44,7 @@ import type {
 } from "../types.js";
 import { EngineError } from "../types.js";
 import { settings } from "../settings.js";
+import { tokenFromCredentials } from "../claudeLogin.js";
 import { toZodShape } from "../jsonSchemaToZod.js";
 import crypto from "node:crypto";
 
@@ -67,6 +68,20 @@ const ALL_TOOLS = [
   "Skill",
   "ListMcpResources",
   "ReadMcpResource",
+];
+
+/**
+ * Credentials the harness honours besides the OAuth token. Any of them present
+ * in the environment would authenticate the request as a different identity, so
+ * they are stripped before the run.
+ */
+const SHADOWING_AUTH_VARS = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "AWS_BEARER_TOKEN_BEDROCK",
+  "ANTHROPIC_FOUNDRY_API_KEY",
+  "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+  "ANTHROPIC_AWS_API_KEY",
 ];
 
 /** MCP server name the client's functions are registered under. */
@@ -155,16 +170,13 @@ export class ClaudeCodeEngine implements Engine {
   readonly name = "claude-code";
 
   assertReady(): void {
-    const hasToken = Boolean(settings.claudeCodeOAuthToken);
-    const hasCredentialsFile = (() => {
-      try {
-        return fs.existsSync(config.claudeConfigDir + "/.credentials.json");
-      } catch {
-        return false;
-      }
-    })();
+    // The credential file on its own is NOT enough: measured on the wire, the
+    // SDK path fails with "Not logged in" and issues no request at all unless
+    // CLAUDE_CODE_OAUTH_TOKEN is set. So readiness means "we have a token to
+    // put in the environment" — from the settings, or read out of the file.
+    const hasToken = Boolean(settings.claudeCodeOAuthToken || tokenFromCredentials());
 
-    if (!hasToken && !hasCredentialsFile) {
+    if (!hasToken) {
       throw new EngineError(
         "Für das Backend „Claude-Abo“ fehlen die Zugangsdaten. " +
           "Melde dich im Web-Interface unter Einstellungen → Bei Claude anmelden an.",
@@ -179,11 +191,16 @@ export class ClaudeCodeEngine implements Engine {
       ...(process.env as Record<string, string>),
       CLAUDE_CONFIG_DIR: config.claudeConfigDir,
     };
-    if (settings.claudeCodeOAuthToken) {
-      env.CLAUDE_CODE_OAUTH_TOKEN = settings.claudeCodeOAuthToken;
-    }
-    // An API key in the environment would shadow the subscription OAuth token.
-    delete env.ANTHROPIC_API_KEY;
+    // Every credential the harness would otherwise pick up. Removing only
+    // ANTHROPIC_API_KEY left the others as silent shadowing paths, where a
+    // request authenticates as something other than the configured account.
+    for (const key of SHADOWING_AUTH_VARS) delete env[key];
+
+    // Settings first, then whatever the CLI stored. `claude setup-token` never
+    // writes a credential file, but a mounted ~/.claude from a real login does
+    // — and that only works if its token reaches the environment.
+    const token = settings.claudeCodeOAuthToken || tokenFromCredentials();
+    if (token) env.CLAUDE_CODE_OAUTH_TOKEN = token;
 
     return {
       model: req.model,

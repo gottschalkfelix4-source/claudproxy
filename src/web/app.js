@@ -1088,3 +1088,29 @@ $("#diag-run").addEventListener("click", async () => {
     btn.textContent = "Verbindung prüfen";
   }
 });
+
+/* ---------------- active credential check ---------------- */
+
+$("#verify-run").addEventListener("click", async () => {
+  const btn = $("#verify-run");
+  const out = $("#diag-result");
+  btn.disabled = true;
+  btn.textContent = "Testet …";
+  out.innerHTML =
+    '<div class="banner warn">Sende eine echte Anfrage an Claude — das dauert einen Moment …</div>';
+
+  try {
+    const r = await api("/verify-credentials", { method: "POST" });
+    out.innerHTML =
+      `<div class="banner ${r.ok ? "ok" : "err"}">${esc(r.message)}</div>` +
+      (r.detail && !r.ok
+        ? `<pre class="snippet" style="margin-bottom:12px">${esc(r.detail)}</pre>`
+        : "");
+    renderTokenInfo();
+  } catch (ex) {
+    out.innerHTML = `<div class="banner err">${esc(ex.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Anmeldung testen";
+  }
+});

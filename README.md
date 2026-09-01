@@ -119,7 +119,17 @@ Der Proxy startet dafür `claude setup-token` als Unterprozess unter einem Pseud
 (`script(1)`, Teil von util-linux und im Image enthalten — daher keine native
 Abhängigkeit), liest die OAuth-URL aus dessen Ausgabe und reicht den Code, den du
 einfügst, an dessen Eingabe weiter. Der Token landet anschließend in den
-Einstellungen, die Zugangsdaten zusätzlich im gemounteten `.claude`-Verzeichnis.
+Einstellungen.
+
+**Wichtig zu wissen:** `claude setup-token` schreibt *keine* Anmeldedatei — es gibt
+den Token ausschließlich auf dem Terminal aus („Store this token securely. You won't
+be able to see it again."). Die Terminalausgabe ist damit die einzige Quelle, weshalb
+der Proxy den ausgelesenen Token vor dem Speichern auf Vollständigkeit prüft und
+einen zu kurzen gar nicht erst übernimmt.
+
+Eine gemountete `~/.claude` aus einem echten `claude login` funktioniert ebenfalls:
+der Token daraus wird beim Request in die Umgebung übernommen. Ohne das schlägt der
+SDK-Pfad mit „Not logged in" fehl, selbst wenn die Datei vorhanden ist.
 
 Beim Absenden des Codes sind zwei Details entscheidend, die beide zu einer stumm
 hängenden Anmeldung führen, wenn man sie falsch macht:
