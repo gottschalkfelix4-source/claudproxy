@@ -176,6 +176,20 @@ Startwerte, alles Weitere passiert im Web-Interface unter
 Der Endpunkt für andere Container lautet `http://<unraid-ip>:3000/v1`; die Adressen
 stehen auch in der Übersicht und unter „Anbinden".
 
+### Aktualisieren
+
+Ein Neustart des Containers zieht **kein** neues Image — er startet dasselbe noch
+einmal. Für eine neue Version auf der Docker-Seite unten **Check for Updates**
+klicken; bei `claude-proxy` erscheint dann *update ready* → **Apply Update**.
+Alternativ auf den Container klicken → **Force Update**.
+
+Welche Version gerade läuft, steht in der Übersicht des Web-Interface unter der
+Überschrift (Version, Build-Kürzel und Datum) und in `/health`:
+
+```bash
+curl -s http://<unraid-ip>:3000/health
+```
+
 ### Rechte
 
 Der Container startet als root, gleicht die Eigentümerschaft der gemounteten
@@ -282,7 +296,8 @@ wiederherstellen, nur ersetzen.
 | `GET` | `/v1/models/{id}` | Einzelnes Modell |
 | `POST` | `/v1/completions` | Legacy, ohne Streaming |
 | `POST` | `/v1/embeddings` | `501` — Anthropic bietet keine Embeddings |
-| `GET` | `/health` | Statusprüfung, kein Key nötig |
+| `GET` | `/health` | Läuft der Dienst? Immer `200`, Details im Body. Kein Key nötig |
+| `GET` | `/ready` | Ist ein Backend einsatzbereit? `503`, solange nicht konfiguriert |
 | | `/admin` | Web-Interface |
 
 Unterstützte Request-Felder: `model`, `messages`, `stream`, `stream_options`,
@@ -396,6 +411,17 @@ entfernt Sampling-Parameter. Falls doch, den Fehlertext aus den Logs melden.
 **Eine Umgebungsvariable wirkt nicht** — Das Feld wurde vermutlich im Web-Interface
 überschrieben; dort steht dann *hier gesetzt* daneben. Ein Klick auf *Zurücksetzen*
 gibt den Umgebungswert wieder frei.
+
+**Der Container gilt als „unhealthy"** — Bei Versionen vor dem 01.09.2026 gab
+`/health` ein `503` zurück, solange kein Backend konfiguriert war; Docker und Unraid
+werteten das als kranken Container, obwohl das Web-Interface lief. Aktualisiere das
+Image. Seitdem antwortet `/health` mit `200`, sobald der Dienst läuft; die
+Backend-Bereitschaft steht im Body und unter `/ready`.
+
+**Ein Fix wirkt nicht** — Prüfe zuerst, welche Version läuft: in der Übersicht unter
+der Überschrift, oder `curl -s http://<host>:3000/health`. Ein Container-Neustart
+zieht kein neues Image, dafür braucht es *Force Update* (Unraid) beziehungsweise
+`docker compose pull && docker compose up -d`.
 
 **„Der Code wurde abgelehnt"** — Der Code auf der Claude-Seite ist länger, als das
 Feld dort anzeigt. Mit dem Kopier-Symbol daneben kopieren statt ihn zu markieren.

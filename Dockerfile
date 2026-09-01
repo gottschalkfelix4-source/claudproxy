@@ -23,7 +23,16 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates tini curl \
  && rm -rf /var/lib/apt/lists/*
 
-ENV NODE_ENV=production \
+# Stamped in by CI so a running container can name its own build — telling an
+# up-to-date container from a stale one should not require comparing digests.
+ARG APP_VERSION=dev
+ARG GIT_SHA=""
+ARG BUILD_TIME=""
+
+ENV APP_VERSION=$APP_VERSION \
+    GIT_SHA=$GIT_SHA \
+    BUILD_TIME=$BUILD_TIME \
+    NODE_ENV=production \
     DATA_DIR=/data \
     WORK_DIR=/tmp/claude-proxy-work \
     CLAUDE_CONFIG_DIR=/home/node/.claude \

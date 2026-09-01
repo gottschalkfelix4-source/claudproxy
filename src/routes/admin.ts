@@ -30,6 +30,7 @@ import {
 import * as claudeLogin from "../claudeLogin.js";
 import { hashKey, setSetting } from "../db.js";
 import os from "node:os";
+import { BUILD } from "../version.js";
 
 export const adminRouter = Router();
 
@@ -96,7 +97,9 @@ adminRouter.get("/status", (_req, res) => {
     models: MODELS,
     claudeCredentials: claudeLogin.credentialsPresent(),
     uptimeSeconds: Math.floor(process.uptime()),
-    version: process.env.APP_VERSION ?? "1.0.0",
+    version: BUILD.version,
+    commit: BUILD.commit,
+    builtAt: BUILD.builtAt,
   });
 });
 

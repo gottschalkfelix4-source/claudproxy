@@ -129,9 +129,18 @@ async function loadDashboard() {
     )} ist nicht einsatzbereit.</strong><br>${esc(status.detail)}</div>`;
   }
 
-  $("#dash-sub").textContent = `Version ${status.version} · läuft seit ${Math.floor(
-    status.uptimeSeconds / 60,
-  )} min`;
+  const built = status.builtAt
+    ? new Date(status.builtAt).toLocaleDateString("de-DE", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : null;
+  $("#dash-sub").innerHTML =
+    `Version ${esc(status.version)}` +
+    (status.commit ? ` · Build <code>${esc(status.commit.slice(0, 7))}</code>` : "") +
+    (built && built !== "Invalid Date" ? ` vom ${esc(built)}` : "") +
+    ` · läuft seit ${Math.floor(status.uptimeSeconds / 60)} min`;
 
   const t = stats.totals || {};
   $("#s-requests").textContent = fmtInt(t.requests);

@@ -8,6 +8,7 @@ import { config } from "./config.js";
 import { pruneOldRequests } from "./db.js";
 import { engineStatus } from "./engines/index.js";
 import { settings } from "./settings.js";
+import { BUILD } from "./version.js";
 import { adminRouter } from "./routes/admin.js";
 import { v1Router } from "./routes/v1.js";
 
@@ -42,13 +43,36 @@ app.use((req, res, next) => {
 /* routes                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Liveness. Answers 200 whenever the process is serving, and reports backend
+ * readiness in the body instead of the status code.
+ *
+ * This is what the container HEALTHCHECK uses. Returning 503 for a backend that
+ * merely lacks credentials marked the container unhealthy in Docker and Unraid
+ * while the web UI — the very place you go to enter those credentials — was
+ * working fine.
+ */
 app.get("/health", (_req, res) => {
   const status = engineStatus();
-  res.status(status.ready ? 200 : 503).json({
-    status: status.ready ? "ok" : "degraded",
+  res.status(200).json({
+    status: "ok",
+    backendReady: status.ready,
     backend: status.backend,
     detail: status.detail,
+    version: BUILD.version,
+    commit: BUILD.commit,
+    builtAt: BUILD.builtAt,
     uptimeSeconds: Math.floor(process.uptime()),
+  });
+});
+
+/** Readiness, for a load balancer that should skip an unconfigured instance. */
+app.get("/ready", (_req, res) => {
+  const status = engineStatus();
+  res.status(status.ready ? 200 : 503).json({
+    status: status.ready ? "ready" : "not_ready",
+    backend: status.backend,
+    detail: status.detail,
   });
 });
 
@@ -124,7 +148,7 @@ const server = app.listen(config.port, config.host, () => {
   const status = engineStatus();
   const banner = [
     "",
-    "  Claude -> OpenAI proxy",
+    `  Claude -> OpenAI proxy  ${BUILD.version}${BUILD.commit ? " (" + BUILD.commit + ")" : ""}`,
     `  Endpoint    http://localhost:${config.port}/v1`,
     `  Web UI      http://localhost:${config.port}/admin`,
     `  Backend     ${status.backend} (${status.ready ? "ready" : "NOT READY"})`,
