@@ -108,15 +108,16 @@ print(r.choices[0].message.content)
 
 Das Template liegt in [`unraid/claude-proxy.xml`](unraid/claude-proxy.xml).
 
-### Einmalig: Image veröffentlichen
+### Das Image
 
-Das Image wird bei jedem Push nach `main` von GitHub Actions gebaut und nach
-`ghcr.io/gottschalkfelix4-source/claudproxy:latest` gepusht. **GHCR-Pakete sind
-anfangs privat** — Unraid kann es dann nicht ziehen. Nach dem ersten
-erfolgreichen Build einmal umstellen:
+Wird bei jedem Push nach `main` von GitHub Actions gebaut und nach
+`ghcr.io/gottschalkfelix4-source/claudproxy:latest` veröffentlicht. Es ist ohne
+Anmeldung ziehbar, Unraid kommt also direkt heran — nichts weiter zu tun.
 
-GitHub → Profil → **Packages** → `claudproxy` → *Package settings* → *Change
-visibility* → **Public**.
+Sollte ein späterer Build das Paket doch privat anlegen (Unraid meldet dann
+„manifest unknown" oder „unauthorized"), lässt sich das umstellen unter GitHub →
+Profil → **Packages** → `claudproxy` → *Package settings* → *Change visibility* →
+**Public**.
 
 ### Container anlegen
 
