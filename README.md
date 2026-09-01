@@ -121,9 +121,17 @@ Abhängigkeit), liest die OAuth-URL aus dessen Ausgabe und reicht den Code, den 
 einfügst, an dessen Eingabe weiter. Der Token landet anschließend in den
 Einstellungen, die Zugangsdaten zusätzlich im gemounteten `.claude`-Verzeichnis.
 
-Der Code wird mit einem Carriage Return abgeschickt, nicht mit einem Newline: die
-CLI schaltet das Pseudo-Terminal in den Raw-Modus und wertet nur CR als Enter — ein
-LF wird verschluckt, und der Code kommt nie an.
+Beim Absenden des Codes sind zwei Details entscheidend, die beide zu einer stumm
+hängenden Anmeldung führen, wenn man sie falsch macht:
+
+- **Carriage Return statt Newline.** Die CLI hält das Pseudo-Terminal im Raw-Modus
+  und wertet nur CR als Enter; ein LF wird verschluckt.
+- **Das Enter muss getrennt geschrieben werden.** Die CLI aktiviert Bracketed Paste
+  und behandelt einen großen Einzel-Write als eingefügten Text — darin ist ein CR
+  Inhalt, keine Bestätigung. Gemessen: zusammen geschrieben funktioniert es bis
+  etwa 48 Zeichen und wird darüber stillschweigend geschluckt. Ein echter
+  OAuth-Code ist `code#state` und rund 90 Zeichen lang, fällt also genau in diesen
+  Bereich. Der Proxy schreibt deshalb erst den Code und 80 ms später das CR.
 
 Lehnt der OAuth-Server den Code ab, meldet die CLI das und wartet auf „Press Enter
 to retry"; der Proxy beantwortet diesen Prompt selbst, sodass das Formular sofort
@@ -422,6 +430,11 @@ Backend-Bereitschaft steht im Body und unter `/ready`.
 der Überschrift, oder `curl -s http://<host>:3000/health`. Ein Container-Neustart
 zieht kein neues Image, dafür braucht es *Force Update* (Unraid) beziehungsweise
 `docker compose pull && docker compose up -d`.
+
+**Die Anmeldung endet stumm im Timeout, das Protokoll zeigt den Code als Sternchen
+und danach nichts** — Das war ein Fehler in Versionen vor dem 01.09.2026: das Enter
+wurde zusammen mit dem Code geschrieben und ab etwa 48 Zeichen als Teil eines
+Einfügevorgangs gewertet. Image aktualisieren.
 
 **„Der Code wurde abgelehnt"** — Der Code auf der Claude-Seite ist länger, als das
 Feld dort anzeigt. Mit dem Kopier-Symbol daneben kopieren statt ihn zu markieren.

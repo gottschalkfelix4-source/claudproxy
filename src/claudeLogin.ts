@@ -361,16 +361,32 @@ export function submitCode(code: string): void {
   session.message = null;
   session.state = "exchanging";
 
-  // Carriage return, not newline. The CLI puts the PTY in raw mode and only
-  // treats CR as Enter — a bare LF is swallowed and the code is never
-  // submitted, which looks exactly like the server never answering.
-  proc.stdin.write(clean + "\r", (err) => {
+  const failWrite = (err: Error | null | undefined) => {
     if (err) {
       backToCodeEntry(
         `Der Code konnte nicht an die Claude-CLI übergeben werden: ${err.message}`,
       );
     }
-  });
+  };
+
+  // Two writes, not one.
+  //
+  // Carriage return, not newline: the CLI keeps the PTY in raw mode and only
+  // treats CR as Enter. But the Enter must also arrive *separately*. The CLI
+  // enables bracketed paste and treats a large single write as pasted text, in
+  // which a CR is literal content rather than a submit — so the code appears at
+  // the prompt and then nothing happens at all.
+  //
+  // Measured against the real CLI: code+CR in one write is accepted up to about
+  // 48 characters and silently swallowed beyond that, while a separate CR works
+  // at every length. A real OAuth code is `code#state`, around 90 characters,
+  // which is why short test codes worked and the genuine article never did.
+  proc.stdin.write(clean, failWrite);
+  setTimeout(() => {
+    if (session.proc === proc && !proc.killed && proc.exitCode === null) {
+      proc.stdin.write("\r", failWrite);
+    }
+  }, 80);
 
   // The CLI says nothing while it talks to the OAuth server, so cap the wait
   // and hand control back instead of leaving the UI on "checking…" forever.
