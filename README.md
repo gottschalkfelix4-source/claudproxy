@@ -239,6 +239,34 @@ nimmt das `anthropic-api`-Backend.
 
 ---
 
+## Kontingent des Abos
+
+Das `claude-code`-Backend vermeidet die Abrechnung pro Token — **nicht** die Grenzen
+deines Abos. Ist das Kontingent aufgebraucht, meldet Claude:
+
+> You're out of extra usage. Add more at claude.ai/settings/usage
+
+Der Proxy gibt das als `429` mit `insufficient_quota` weiter, nicht als `400`: dein
+Request war in Ordnung, das Kontingent ist es nicht. Umgehen lässt sich das nicht,
+und der Proxy versucht es auch nicht — es ist eine Abrechnungsgrenze deines Kontos.
+
+Was tatsächlich hilft:
+
+- **Ein sparsameres Modell.** Die Modellklassen haben getrennte Kontingente, und
+  Opus zehrt mit Abstand am schnellsten. Ist Opus leer, hat Sonnet meist noch
+  Luft. Viele Anwendungen fragen fest `opus` an — mit `DEFAULT_MODEL` und
+  `QUOTA_FALLBACK_MODEL` lenkst du das um, ohne die Anwendung anzufassen.
+- **Ausweichmodell setzen.** Unter Einstellungen → *Ausweichmodell bei erschöpftem
+  Kontingent*. Läuft das angeforderte Modell leer, wird der Request einmalig mit
+  diesem wiederholt — der Client merkt nur, dass es weitergeht.
+- **Reasoning Effort senken** (`low` oder `medium`) — weniger Denk-Tokens pro
+  Antwort.
+- **Warten.** Die Kontingente füllen sich nach einiger Zeit wieder auf.
+- **Für Lastspitzen auf `anthropic-api` umschalten.** Dann wird pro Token
+  abgerechnet, dafür ohne Abo-Grenze.
+
+---
+
 ## Anwendungen anbinden
 
 Die meisten Tools brauchen nur zwei Werte:
@@ -339,6 +367,7 @@ dokumentiert in [`.env.example`](.env.example), die wichtigsten:
 | `BACKEND` | `claude-code` | `claude-code`, `anthropic-api` oder `mock` |
 | `DEFAULT_MODEL` | `claude-opus-5` | Wenn der Client kein Modell schickt |
 | `DEFAULT_EFFORT` | *(API-Default)* | `low` … `max`; senkt Kosten und Latenz |
+| `QUOTA_FALLBACK_MODEL` | *(aus)* | Ausweichmodell, wenn das Kontingent für das angeforderte erschöpft ist |
 | `EXPOSE_THINKING` | `false` | Gedankengang als `reasoning_content` mitliefern |
 | `REQUIRE_AUTH` | `true` | Nur in vertrauenswürdigen Netzen abschalten |
 | `MAX_TOKENS_LIMIT` | `64000` | Obergrenze pro Request |

@@ -100,6 +100,21 @@ function prepare(req: Request, res: Response): Prepared | null {
   }
 }
 
+/**
+ * Retries once on a different model when the subscription allowance for the
+ * requested one is used up. Claude subscriptions meter the model tiers
+ * separately, so Opus running dry does not mean Sonnet has.
+ */
+function quotaFallbackFor(req: ChatRequest): string | null {
+  const fallback = settings.quotaFallbackModel;
+  if (!fallback || fallback === req.model) return null;
+  return fallback;
+}
+
+function isQuota(err: unknown): boolean {
+  return err instanceof EngineError && err.code === "insufficient_quota";
+}
+
 function record(
   req: Request,
   prep: Prepared,
@@ -129,7 +144,8 @@ function record(
 }
 
 v1Router.post("/chat/completions", apiKeyAuth, async (req: Request, res: Response) => {
-  const prep = prepare(req, res);
+  // Reassigned when a quota fallback switches models mid-flight.
+  let prep = prepare(req, res);
   if (!prep) return;
 
   const startedAt = Date.now();
@@ -144,9 +160,18 @@ v1Router.post("/chat/completions", apiKeyAuth, async (req: Request, res: Respons
   /* ---------------- non-streaming ---------------- */
   if (!prep.chatReq.stream) {
     try {
-      const result = await engine.complete(prep.chatReq, abort.signal);
-      const payload = toOpenAICompletion(newCompletionId(), prep.model, result);
-      record(req, prep, 200, result.usage, result.costUsd ?? 0, startedAt, false);
+      let usedModel = prep.model;
+      let result;
+      try {
+        result = await engine.complete(prep.chatReq, abort.signal);
+      } catch (err) {
+        const fallback = isQuota(err) ? quotaFallbackFor(prep.chatReq) : null;
+        if (!fallback) throw err;
+        usedModel = fallback;
+        result = await engine.complete({ ...prep.chatReq, model: fallback }, abort.signal);
+      }
+      const payload = toOpenAICompletion(newCompletionId(), usedModel, result);
+      record(req, { ...prep, model: usedModel }, 200, result.usage, result.costUsd ?? 0, startedAt, false);
       res.json(payload);
     } catch (err) {
       const e = toEngineError(err);
@@ -172,9 +197,21 @@ v1Router.post("/chat/completions", apiKeyAuth, async (req: Request, res: Respons
 
   try {
     // Resolve the first event before committing to a 200, so an immediate
-    // upstream failure can still be reported as a normal JSON error.
-    const iterator = engine.stream(prep.chatReq, abort.signal)[Symbol.asyncIterator]();
-    let step = await iterator.next();
+    // upstream failure can still be reported as a normal JSON error — and so a
+    // quota fallback can still switch models before anything has been sent.
+    let iterator = engine.stream(prep.chatReq, abort.signal)[Symbol.asyncIterator]();
+    let step;
+    try {
+      step = await iterator.next();
+    } catch (err) {
+      const fallback = isQuota(err) ? quotaFallbackFor(prep.chatReq) : null;
+      if (!fallback) throw err;
+      prep = { ...prep, model: fallback };
+      iterator = engine
+        .stream({ ...prep.chatReq, model: fallback }, abort.signal)
+        [Symbol.asyncIterator]();
+      step = await iterator.next();
+    }
 
     res.status(200).set({
       "Content-Type": "text/event-stream; charset=utf-8",

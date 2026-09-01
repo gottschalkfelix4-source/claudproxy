@@ -11,7 +11,7 @@
     "start": "node dist/index.js",
     "dev": "npm run build && node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test test/translate.test.mjs test/login.test.mjs test/tools.test.mjs"
+    "test": "npm run build && node --test test/translate.test.mjs test/login.test.mjs test/tools.test.mjs test/quota.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.252",

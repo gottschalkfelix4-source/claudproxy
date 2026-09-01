@@ -79,6 +79,21 @@ export const FIELDS: FieldDef[] = [
     options: MODELS.map((m) => ({ value: m.id, label: `${m.label} (${m.id})` })),
   },
   {
+    key: "QUOTA_FALLBACK_MODEL",
+    label: "Ausweichmodell bei erschöpftem Kontingent",
+    type: "select",
+    fallback: () => process.env.QUOTA_FALLBACK_MODEL ?? "",
+    group: "model",
+    description:
+      "Ist das Kontingent des Abos für das angeforderte Modell aufgebraucht, wird der " +
+      "Request einmalig mit diesem Modell wiederholt. Opus zehrt am schnellsten am " +
+      "Kontingent, Sonnet und Haiku halten deutlich länger. Leer = kein Ausweichen.",
+    options: [
+      { value: "", label: "Aus — Fehler durchreichen" },
+      ...MODELS.map((m) => ({ value: m.id, label: `${m.label} (${m.id})` })),
+    ],
+  },
+  {
     key: "DEFAULT_EFFORT",
     label: "Reasoning Effort",
     type: "select",
@@ -215,6 +230,9 @@ export const settings = {
   },
   get defaultEffort(): string {
     return raw("DEFAULT_EFFORT");
+  },
+  get quotaFallbackModel(): string {
+    return raw("QUOTA_FALLBACK_MODEL");
   },
   get defaultMaxTokens(): number {
     return asInt("DEFAULT_MAX_TOKENS", 16000);

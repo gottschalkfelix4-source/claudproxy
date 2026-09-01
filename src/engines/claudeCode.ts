@@ -414,6 +414,16 @@ export class ClaudeCodeEngine implements Engine {
   }
 }
 
+/**
+ * The subscription allowance is used up — distinct from a per-minute rate limit
+ * and from a malformed request, though the API reports it with a 400.
+ */
+export function isQuotaExhausted(message: string): boolean {
+  return /out of extra usage|usage limit|out of credits|credit balance|insufficient.?quota|settings\/usage/i.test(
+    message,
+  );
+}
+
 /** An abort we triggered ourselves after capturing a tool call. */
 function isAbort(err: unknown): boolean {
   if (err instanceof Error) {
@@ -436,7 +446,22 @@ function assertResultOk(msg: SDKResultMessage): asserts msg is SDKResultSuccess 
 
   const detail =
     ("result" in msg && msg.result) || `Claude Code returned ${msg.subtype}`;
-  const status = ("api_error_status" in msg && msg.api_error_status) || 502;
+  let status = ("api_error_status" in msg && msg.api_error_status) || 502;
+
+  // An exhausted subscription allowance arrives as a 400, which reads as "your
+  // request was malformed" — it is not. OpenAI clients expect 429 with
+  // insufficient_quota for this, and treat it as a quota condition rather than
+  // a bug in their own payload.
+  if (isQuotaExhausted(detail)) {
+    throw new EngineError(
+      "Das Nutzungskontingent deines Claude-Abos ist erschöpft. Es füllt sich nach " +
+        "einiger Zeit wieder auf. Bis dahin hilft ein sparsameres Modell " +
+        "(Sonnet oder Haiku statt Opus) — Opus zehrt am schnellsten daran. " +
+        `Meldung von Claude: ${detail}`,
+      429,
+      "insufficient_quota",
+    );
+  }
 
   const code =
     status === 401 || status === 403
