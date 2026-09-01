@@ -6,8 +6,9 @@
  * before the real backend is wired up.
  */
 
+import crypto from "node:crypto";
 import { estimateCost } from "../models.js";
-import type { ChatRequest, ChatResult, Engine, StreamEvent, Usage } from "../types.js";
+import type { ChatRequest, ChatResult, Engine, StreamEvent, ToolCall, Usage } from "../types.js";
 
 function summarise(req: ChatRequest): string {
   const last = req.messages[req.messages.length - 1];
@@ -37,12 +38,64 @@ function fakeUsage(req: ChatRequest, output: string): Usage {
   };
 }
 
+/**
+ * Calls the first offered tool once, so a client's function-calling round trip
+ * can be exercised end to end without any credentials. Returns no call once a
+ * result has come back, otherwise the conversation would never terminate.
+ */
+function mockToolCall(req: ChatRequest): ToolCall[] {
+  if (!req.tools?.length) return [];
+
+  const alreadyAnswered = req.messages.some(
+    (m) =>
+      Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result"),
+  );
+  if (alreadyAnswered) return [];
+
+  const first = req.tools[0];
+  const props = (first.input_schema?.properties ?? {}) as Record<
+    string,
+    { type?: string; enum?: unknown[] }
+  >;
+
+  // Plausible arguments so the client's own parsing is exercised too.
+  const args: Record<string, unknown> = {};
+  for (const [name, spec] of Object.entries(props)) {
+    if (Array.isArray(spec?.enum) && spec.enum.length) args[name] = spec.enum[0];
+    else if (spec?.type === "number" || spec?.type === "integer") args[name] = 1;
+    else if (spec?.type === "boolean") args[name] = true;
+    else if (spec?.type === "array") args[name] = [];
+    else if (spec?.type === "object") args[name] = {};
+    else args[name] = "mock";
+  }
+
+  return [
+    {
+      id: "call_" + crypto.randomBytes(12).toString("hex"),
+      name: first.name,
+      argumentsJson: JSON.stringify(args),
+    },
+  ];
+}
+
 export class MockEngine implements Engine {
   readonly name = "mock";
 
   assertReady(): void {}
 
   async complete(req: ChatRequest): Promise<ChatResult> {
+    const toolCalls = mockToolCall(req);
+    if (toolCalls.length) {
+      const usage = fakeUsage(req, "");
+      return {
+        text: "",
+        toolCalls,
+        finishReason: "tool_calls",
+        usage,
+        costUsd: estimateCost(req.model, usage.promptTokens, usage.completionTokens),
+      };
+    }
+
     const text = summarise(req);
     const usage = fakeUsage(req, text);
     return {
@@ -55,6 +108,22 @@ export class MockEngine implements Engine {
   }
 
   async *stream(req: ChatRequest, signal: AbortSignal): AsyncGenerator<StreamEvent, void, void> {
+    const toolCalls = mockToolCall(req);
+    if (toolCalls.length) {
+      const usage = fakeUsage(req, "");
+      for (const [index, call] of toolCalls.entries()) {
+        yield { type: "tool_call_start", index, id: call.id, name: call.name };
+        yield { type: "tool_call_delta", index, argumentsDelta: call.argumentsJson };
+      }
+      yield {
+        type: "done",
+        finishReason: "tool_calls",
+        usage,
+        costUsd: estimateCost(req.model, usage.promptTokens, usage.completionTokens),
+      };
+      return;
+    }
+
     const text = summarise(req);
     const usage = fakeUsage(req, text);
 
