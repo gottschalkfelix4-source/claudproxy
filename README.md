@@ -20,7 +20,8 @@ Deine Apps ──► http://proxy:3000/v1  ──►  Claude
 | **OpenAI-Endpunkt** | `/v1/chat/completions` (Streaming + non-Streaming), `/v1/models`, `/v1/completions` |
 | **Zwei Backends** | Claude-Abo (Pro/Max, ohne Token-Abrechnung) oder Anthropic-API-Key |
 | **Key-Verwaltung** | Beliebig viele Keys, je mit Rate-Limit, Budget, Modell-Whitelist, Ablaufdatum |
-| **Web-Interface** | Übersicht, Keys, Logs, Playground, fertige Code-Snippets — unter `/admin` |
+| **Web-Interface** | Übersicht, Keys, Logs, Playground, Einstellungen, Code-Snippets — unter `/admin` |
+| **Alles im Browser** | Claude-Anmeldung und sämtliche Einstellungen; kein Neustart, keine Shell nötig |
 | **Modell-Aliase** | `gpt-4o`, `gpt-4`, `gpt-3.5-turbo` … werden auf Claude-Modelle gemappt |
 | **Nutzungs-Tracking** | Requests, Tokens und geschätzte Kosten pro Key und Modell |
 | **Vision** | Bilder werden durchgereicht (`image_url`, auch als `data:`-URI) |
@@ -34,47 +35,16 @@ Deine Apps ──► http://proxy:3000/v1  ──►  Claude
 cp .env.example .env
 ```
 
-### 1. Backend wählen
-
-**Variante A — Claude-Abo (Pro/Max).** Keine Abrechnung pro Token, es gelten die
-Rate-Limits deines Abos.
-
-```bash
-docker compose build
-docker compose run --rm claude-proxy claude setup-token
-```
-
-Der Befehl zeigt eine URL. Im Browser öffnen, anmelden, den zurückgegebenen Token
-kopieren und in die `.env` eintragen:
-
-```
-BACKEND=claude-code
-CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
-```
-
-Der Token ist ein Jahr gültig.
-
-**Variante B — Anthropic-API-Key.** Abrechnung pro Token, dafür mit Function Calling.
-
-```
-BACKEND=anthropic-api
-ANTHROPIC_API_KEY=sk-ant-api03-...
-```
-
-**Variante C — erst mal ohne alles testen.** Ein Echo-Backend, das die komplette
-Kette bedient, damit du deine Anwendung anbinden kannst, bevor Zugangsdaten stehen.
-
-```
-BACKEND=mock
-```
-
-### 2. Starten
+### 1. Starten
 
 ```bash
 docker compose up -d
 ```
 
-### 3. Einloggen
+In die `.env` muss dafür nichts eingetragen werden — alles Weitere passiert im
+Browser.
+
+### 2. Einloggen
 
 Das Web-Interface läuft auf <http://localhost:3000/admin>.
 
@@ -84,6 +54,23 @@ geschrieben:
 ```bash
 docker compose logs claude-proxy | grep -A2 "Admin password"
 ```
+
+Unter **Einstellungen** lässt es sich anschließend ändern.
+
+### 3. Backend wählen
+
+Unter **Einstellungen → Backend**:
+
+- **Claude-Abo (Pro/Max)** — keine Abrechnung pro Token, es gelten die Rate-Limits
+  deines Abos. Dafür in derselben Ansicht auf **Bei Claude anmelden** klicken: der
+  angezeigte Link führt zur Anmeldung, den Code danach zurück ins Formular kopieren.
+  Der Token wird gespeichert und ist ein Jahr gültig.
+- **Anthropic API-Key** — Abrechnung pro Token, dafür mit Function Calling. Key
+  direkt ins Feld eintragen.
+- **Mock** — Echo-Backend ohne Zugangsdaten, um eine Anwendung anzubinden, bevor
+  Credentials stehen.
+
+Änderungen greifen sofort; ein Neustart ist nie nötig.
 
 ### 4. Key anlegen und anbinden
 
@@ -101,6 +88,42 @@ r = client.chat.completions.create(
 )
 print(r.choices[0].message.content)
 ```
+
+---
+
+## Einstellungen
+
+Alles unter **Einstellungen** im Web-Interface — Backend und Zugangsdaten,
+Standardmodell, Reasoning Effort, Token-Grenzen, Key-Pflicht, Log-Aufbewahrung und
+das Admin-Passwort. Änderungen wirken sofort auf den nächsten Request; ein Neustart
+ist nicht nötig.
+
+**Verhältnis zu den Umgebungsvariablen:** Die Werte aus `.env` beziehungsweise dem
+Unraid-Template sind die Startwerte. Sobald ein Feld im Interface geändert wird,
+landet es in der Datenbank und hat Vorrang. Jedes Feld zeigt seine Herkunft an —
+*Standard*, *aus der Umgebung* oder *hier gesetzt* — und ein *Zurücksetzen* neben
+einem selbst gesetzten Wert stellt den Umgebungswert wieder her.
+
+Änderst du eine Umgebungsvariable, greift sie beim nächsten Start nur, wenn das Feld
+nicht im Interface überschrieben wurde. Ausnahme ist `ADMIN_PASSWORD`: ein dort
+geänderter Wert wird übernommen, ein unverändertes überschreibt ein im Interface
+gesetztes Passwort dagegen nicht.
+
+Nur diese Werte brauchen weiterhin einen Neustart, weil sie beim Start gebunden
+werden: `PORT`, `HOST`, `DATA_DIR`, `CLAUDE_CONFIG_DIR`, `ENABLE_WEB_UI`, `PUID`,
+`PGID`.
+
+### Claude-Anmeldung im Browser
+
+Der Proxy startet dafür `claude setup-token` als Unterprozess unter einem Pseudo-Terminal
+(`script(1)`, Teil von util-linux und im Image enthalten — daher keine native
+Abhängigkeit), liest die OAuth-URL aus dessen Ausgabe und reicht den Code, den du
+einfügst, an dessen Eingabe weiter. Der Token landet anschließend in den
+Einstellungen, die Zugangsdaten zusätzlich im gemounteten `.claude`-Verzeichnis.
+
+Kommt auf den Code binnen 90 Sekunden keine Antwort, kehrt das Formular mit einem
+Hinweis zur Code-Eingabe zurück, statt hängen zu bleiben — der Link bleibt gültig,
+ein erneuter Versuch ist ohne Neustart des Vorgangs möglich.
 
 ---
 
@@ -134,18 +157,19 @@ sie taucht dann in der Vorlagenliste auf.
 Danach nur noch **Backend** wählen und **Apply**. Die Vorgaben passen für Unraid:
 Daten unter `/mnt/user/appdata/claude-proxy/`, PUID 99 / PGID 100.
 
-### Anmeldung für das Abo-Backend
+### Einrichten
 
-1. Container starten (zunächst ohne Token — er meldet sich als „degraded", das ist erwartet).
-2. Auf der Docker-Seite auf das Container-Icon klicken → **Console**.
-3. Dort `claude setup-token` ausführen, die angezeigte URL im Browser öffnen, anmelden.
-4. Den ausgegebenen Token in **Edit → Claude OAuth Token** eintragen, Container neu starten.
+Im Template selbst muss nichts ausgefüllt werden — die Felder dort sind nur
+Startwerte, alles Weitere passiert im Web-Interface unter
+`http://<unraid-ip>:3000/admin`.
 
-Das Feld ist als Passwort maskiert, ebenso der Anthropic-API-Key und das
-Admin-Passwort.
+1. Container starten. Ohne Token meldet er sich als „degraded" — das ist erwartet.
+2. Das Admin-Passwort steht im Container-Log, falls du keines gesetzt hast.
+3. Unter **Einstellungen** das Backend wählen und beim Claude-Abo auf **Bei Claude
+   anmelden** klicken. Kein Zugriff auf die Container-Console nötig.
 
-Web-Interface danach unter `http://<unraid-ip>:3000/admin`, der Endpunkt für
-andere Container unter `http://<unraid-ip>:3000/v1`.
+Der Endpunkt für andere Container lautet `http://<unraid-ip>:3000/v1`; die Adressen
+stehen auch in der Übersicht und unter „Anbinden".
 
 ### Rechte
 
@@ -268,8 +292,9 @@ Request scheitern lassen, der von einem üblichen OpenAI-Client kommt.
 
 ## Konfiguration
 
-Alle Einstellungen sind Umgebungsvariablen, dokumentiert in
-[`.env.example`](.env.example). Die wichtigsten:
+Die Umgebungsvariablen sind die **Startwerte**; im laufenden Betrieb änderst du
+alles unter [Einstellungen](#einstellungen) im Web-Interface. Vollständig
+dokumentiert in [`.env.example`](.env.example), die wichtigsten:
 
 | Variable | Default | |
 |---|---|---|
@@ -347,10 +372,11 @@ npm test
 **„Backend ist nicht einsatzbereit"** — `/health` und das Dashboard nennen den Grund.
 Meist fehlt `CLAUDE_CODE_OAUTH_TOKEN` oder `ANTHROPIC_API_KEY`.
 
-**`401` vom Claude-Code-Backend** — Token abgelaufen. Neu erzeugen:
+**`401` vom Claude-Code-Backend** — Token abgelaufen. Unter **Einstellungen → Bei
+Claude anmelden** neu anmelden. Wer lieber die Kommandozeile nimmt:
 
 ```bash
-docker compose run --rm claude-proxy claude setup-token
+docker compose exec claude-proxy claude setup-token
 ```
 
 **`429` trotz freiem Rate-Limit** — Beim `claude-code`-Backend greifen die Limits
@@ -361,6 +387,14 @@ entfernt Sampling-Parameter. Falls doch, den Fehlertext aus den Logs melden.
 
 **Streaming bricht ab** — Ein Reverse Proxy puffert SSE. Bei nginx:
 `proxy_buffering off;`.
+
+**Eine Umgebungsvariable wirkt nicht** — Das Feld wurde vermutlich im Web-Interface
+überschrieben; dort steht dann *hier gesetzt* daneben. Ein Klick auf *Zurücksetzen*
+gibt den Umgebungswert wieder frei.
+
+**Die Anmeldung hängt bei „Code wird geprüft"** — Nach 90 Sekunden ohne Antwort
+kehrt das Formular von selbst zur Code-Eingabe zurück. Meist wurde der Code
+unvollständig eingefügt.
 
 ---
 
@@ -373,6 +407,8 @@ src/
   db.ts             SQLite: Keys, Nutzung, Einstellungen
   auth.ts           API-Key-Prüfung, Admin-Session
   models.ts         Modell-Registry, Aliase, Kostenschätzung
+  settings.ts       Laufzeit-Einstellungen: Schema, Validierung, DB über Env
+  claudeLogin.ts    OAuth-Anmeldung im Browser, treibt die CLI unter einem PTY
   translate.ts      OpenAI ↔ Anthropic, beide Richtungen
   types.ts          Gemeinsame Typen, Engine-Interface
   engines/
@@ -381,7 +417,7 @@ src/
     mock.ts         Echo-Backend zum Testen
   routes/
     v1.ts           OpenAI-Endpunkte
-    admin.ts        Admin-API
+    admin.ts        Admin-API: Keys, Nutzung, Einstellungen, Anmeldung
   web/              Web-Interface (Vanilla JS, keine externen Assets)
 ```
 

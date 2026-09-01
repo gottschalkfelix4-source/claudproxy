@@ -42,7 +42,7 @@ function fmtTokens(n) {
 /* auth                                                                */
 /* ------------------------------------------------------------------ */
 
-let state = { status: null, keys: [] };
+let state = { status: null, keys: [], endpoints: null, fields: [] };
 
 function showLogin() {
   $("#login").classList.remove("hidden");
@@ -95,6 +95,7 @@ function navigate(page) {
   if (page === "keys") loadKeys();
   if (page === "logs") loadLogs();
   if (page === "connect") renderConnect();
+  if (page === "settings") loadSettings();
 }
 
 /* ------------------------------------------------------------------ */
@@ -106,8 +107,14 @@ $("#range").addEventListener("change", loadDashboard);
 
 async function loadDashboard() {
   const days = $("#range").value;
-  const [status, stats] = await Promise.all([api("/status"), api("/stats?days=" + days)]);
+  const [status, stats, endpoints] = await Promise.all([
+    api("/status"),
+    api("/stats?days=" + days),
+    api("/endpoints"),
+  ]);
   state.status = status;
+  state.endpoints = endpoints;
+  renderEndpointCard(endpoints);
 
   const banner = $("#engine-banner");
   if (status.ready) {
@@ -548,11 +555,15 @@ $("#pg-send").addEventListener("click", async () => {
 /* connect                                                             */
 /* ------------------------------------------------------------------ */
 
-function renderConnect() {
-  const base = location.origin + "/v1";
+async function renderConnect() {
+  const ep = state.endpoints ?? (state.endpoints = await api("/endpoints"));
+  renderEndpointTable(ep);
+
+  const base = ep.primary.baseUrl;
   $("#c-base").value = base;
   const key = $("#c-key").value || "sk-cp-…";
   const model = state.status?.defaultModel ?? "claude-opus-5";
+  $("#c-base").dataset.base = base;
 
   $("#snip-curl").textContent = `curl ${base}/chat/completions \\
   -H "Authorization: Bearer ${key}" \\
@@ -612,7 +623,11 @@ async function boot() {
     .join("");
 
   const page = location.hash.slice(1);
-  navigate(["dashboard", "keys", "logs", "playground", "connect"].includes(page) ? page : "dashboard");
+  navigate(
+    ["dashboard", "keys", "logs", "playground", "connect", "settings"].includes(page)
+      ? page
+      : "dashboard",
+  );
 }
 
 (async () => {
@@ -624,3 +639,350 @@ async function boot() {
     showLogin();
   }
 })();
+
+/* ------------------------------------------------------------------ */
+/* endpoints                                                           */
+/* ------------------------------------------------------------------ */
+
+function renderEndpointCard(ep) {
+  $("#ep-base").textContent = ep.primary.baseUrl;
+
+  const alts = ep.alternatives ?? [];
+  $("#ep-alternatives").innerHTML = alts.length
+    ? alts
+        .map((a) => `<div><code>${esc(a.baseUrl)}</code><span>${esc(a.label)}</span></div>`)
+        .join("")
+    : '<span class="muted">Keine weiteren Adressen erkannt.</span>';
+}
+
+function renderEndpointTable(ep) {
+  const rows = [
+    ["Base URL (das brauchst du)", ep.primary.baseUrl],
+    ["Chat Completions", ep.primary.chat],
+    ["Modell-Liste", ep.primary.models],
+    ["Health (ohne Key)", ep.primary.health],
+    ["Web-Interface", ep.primary.admin],
+  ];
+
+  $("#ep-table").innerHTML =
+    "<tbody>" +
+    rows
+      .map(
+        ([label, url]) =>
+          `<tr><td style="white-space:nowrap">${esc(label)}</td>
+             <td><code>${esc(url)}</code></td></tr>`,
+      )
+      .join("") +
+    (ep.alternatives ?? [])
+      .map(
+        (a) =>
+          `<tr><td style="white-space:nowrap">${esc(a.label)}<br>
+             <span class="muted" style="font-size:11.5px">${esc(a.hint ?? "")}</span></td>
+             <td><code>${esc(a.baseUrl)}</code></td></tr>`,
+      )
+      .join("") +
+    "</tbody>";
+}
+
+/** Copy buttons name their source element via data-copy. */
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-copy]");
+  if (btn) {
+    const el = document.getElementById(btn.dataset.copy);
+    const text = el?.textContent || el?.value || "";
+    const original = btn.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = "Kopiert";
+    } catch {
+      btn.textContent = "Strg+C";
+    }
+    setTimeout(() => (btn.textContent = original), 1400);
+    return;
+  }
+
+  const goto = e.target.closest("[data-goto]");
+  if (goto) {
+    e.preventDefault();
+    navigate(goto.dataset.goto);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* settings                                                            */
+/* ------------------------------------------------------------------ */
+
+const GROUPS = [
+  {
+    id: "backend",
+    title: "Backend",
+    hint: "Woher die Antworten kommen und womit sich der Proxy authentifiziert.",
+  },
+  {
+    id: "model",
+    title: "Modell & Antwortverhalten",
+    hint: "Gilt für alle Requests, sofern der Client nichts anderes mitschickt.",
+  },
+  {
+    id: "access",
+    title: "Zugriff",
+    hint: "Wer den Endpunkt nutzen darf und wie die Client-IP ermittelt wird.",
+  },
+  { id: "maintenance", title: "Wartung", hint: "Aufbewahrung der Protokolldaten." },
+];
+
+async function loadSettings() {
+  const { fields } = await api("/settings");
+  state.fields = fields;
+  renderSettings(fields);
+  refreshLoginUi();
+}
+
+function renderSettings(fields) {
+  $("#settings-groups").innerHTML = GROUPS.map((g) => {
+    const rows = fields.filter((f) => f.group === g.id).map(settingRow).join("");
+    if (!rows) return "";
+    return `<div class="card settings-group">
+      <h3>${esc(g.title)}</h3>
+      <p class="group-hint">${esc(g.hint)}</p>
+      ${rows}
+    </div>`;
+  }).join("");
+
+  $$("[data-reset-setting]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      await api("/settings/reset", {
+        method: "POST",
+        body: JSON.stringify({ key: btn.dataset.resetSetting }),
+      });
+      await loadSettings();
+      settingsMessage("ok", "Auf den Ausgangswert zurückgesetzt.");
+    }),
+  );
+
+  $$(".toggle input").forEach((box) =>
+    box.addEventListener("change", () => {
+      box.nextElementSibling.textContent = box.checked ? "An" : "Aus";
+    }),
+  );
+}
+
+function settingRow(f) {
+  const id = "set-" + f.key;
+  let control;
+
+  if (f.type === "boolean") {
+    control = `<label class="toggle">
+      <input type="checkbox" id="${id}" data-key="${esc(f.key)}" ${
+        f.value === "true" ? "checked" : ""
+      } />
+      <span>${f.value === "true" ? "An" : "Aus"}</span>
+    </label>`;
+  } else if (f.type === "select") {
+    control = `<select id="${id}" data-key="${esc(f.key)}">${(f.options ?? [])
+      .map(
+        (o) =>
+          `<option value="${esc(o.value)}"${o.value === f.value ? " selected" : ""}>${esc(
+            o.label,
+          )}</option>`,
+      )
+      .join("")}</select>`;
+  } else if (f.type === "secret") {
+    const hint = f.isSet
+      ? "gesetzt — leer lassen, um ihn zu behalten"
+      : "nicht gesetzt";
+    control = `<input type="password" id="${id}" data-key="${esc(f.key)}"
+      placeholder="${esc(hint)}" autocomplete="new-password" />`;
+  } else {
+    control = `<input type="${f.type === "number" ? "number" : "text"}" id="${id}"
+      data-key="${esc(f.key)}" value="${esc(f.value)}"
+      ${f.min !== undefined ? `min="${f.min}"` : ""} ${
+        f.max !== undefined ? `max="${f.max}"` : ""
+      } />`;
+  }
+
+  const meta = [];
+  if (f.overridden) {
+    meta.push('<span class="pill muted">hier gesetzt</span>');
+    meta.push(`<button class="ghost sm" data-reset-setting="${esc(f.key)}">Zurücksetzen</button>`);
+  } else if (f.envPresent) {
+    meta.push('<span class="pill muted">aus der Umgebung</span>');
+  } else {
+    meta.push('<span class="pill muted">Standard</span>');
+  }
+
+  return `<div class="setting-row">
+    <div>
+      <div class="setting-label">${esc(f.label)}</div>
+      <div class="setting-desc">${esc(f.description)}</div>
+    </div>
+    <div class="setting-control">
+      ${control}
+      <div class="setting-meta">${meta.join("")}</div>
+    </div>
+  </div>`;
+}
+
+function settingsMessage(kind, text) {
+  $("#settings-msg").innerHTML = `<div class="banner ${kind}">${esc(text)}</div>`;
+  if (kind === "ok") setTimeout(() => ($("#settings-msg").innerHTML = ""), 4000);
+}
+
+$("#save-settings").addEventListener("click", async () => {
+  const btn = $("#save-settings");
+  const patch = {};
+
+  for (const f of state.fields) {
+    const el = document.getElementById("set-" + f.key);
+    if (!el) continue;
+    patch[f.key] = f.type === "boolean" ? (el.checked ? "true" : "false") : el.value;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Speichert …";
+  try {
+    await api("/settings", { method: "PUT", body: JSON.stringify(patch) });
+    await loadSettings();
+    settingsMessage("ok", "Gespeichert. Die Änderungen gelten ab sofort.");
+    state.status = await api("/status");
+  } catch (ex) {
+    settingsMessage("err", ex.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Speichern";
+  }
+});
+
+/* ---------------- Claude sign-in ---------------- */
+
+let loginPoll = null;
+
+async function refreshLoginUi() {
+  let s;
+  try {
+    s = await api("/claude-login/status");
+  } catch {
+    return;
+  }
+
+  const box = $("#login-status");
+  const stepStart = $("#login-step-start");
+  const stepUrl = $("#login-step-url");
+  const log = $("#login-log");
+
+  const tokenField = state.fields.find((f) => f.key === "CLAUDE_CODE_OAUTH_TOKEN");
+  const haveCredentials = tokenField?.isSet || s.credentialsPresent;
+
+  if (s.state === "waiting_for_code" || s.state === "exchanging") {
+    stepStart.classList.add("hidden");
+    stepUrl.classList.remove("hidden");
+    if (s.url) {
+      $("#login-url").textContent = s.url;
+      $("#login-url").href = s.url;
+    }
+    box.innerHTML =
+      s.state === "exchanging"
+        ? '<div class="banner warn">Code wird geprüft …</div>'
+        : s.message
+          ? `<div class="banner err">${esc(s.message)}</div>`
+          : "";
+    $("#login-submit").disabled = s.state === "exchanging";
+  } else {
+    stepStart.classList.remove("hidden");
+    stepUrl.classList.add("hidden");
+
+    if (s.state === "done") {
+      box.innerHTML = `<div class="banner ok">${esc(s.message ?? "Angemeldet.")}</div>`;
+    } else if (s.state === "error") {
+      box.innerHTML = `<div class="banner err">${esc(
+        s.message ?? "Anmeldung fehlgeschlagen.",
+      )}</div>`;
+    } else if (haveCredentials) {
+      box.innerHTML =
+        '<div class="banner ok">Angemeldet — es liegen Claude-Zugangsdaten vor. ' +
+        "Eine erneute Anmeldung ersetzt sie.</div>";
+    } else {
+      box.innerHTML =
+        '<div class="banner warn">Noch nicht angemeldet. Ohne Zugangsdaten kann das ' +
+        "Backend „Claude-Abo“ keine Anfragen beantworten.</div>";
+    }
+  }
+
+  if (s.tail) {
+    log.textContent = s.tail;
+    log.classList.remove("hidden");
+  } else {
+    log.classList.add("hidden");
+  }
+
+  const active = s.state === "waiting_for_code" || s.state === "exchanging";
+  if (active && !loginPoll) loginPoll = setInterval(refreshLoginUi, 2500);
+  if (!active && loginPoll) {
+    clearInterval(loginPoll);
+    loginPoll = null;
+  }
+}
+
+$("#login-start").addEventListener("click", async () => {
+  const btn = $("#login-start");
+  btn.disabled = true;
+  btn.textContent = "Startet …";
+  $("#login-status").innerHTML =
+    '<div class="banner warn">Die Claude-CLI wird gestartet, das dauert einen Moment …</div>';
+  try {
+    const r = await api("/claude-login/start", { method: "POST" });
+    if (!r.ok && r.error) {
+      $("#login-status").innerHTML = `<div class="banner err">${esc(r.error)}</div>`;
+    }
+  } catch (ex) {
+    $("#login-status").innerHTML = `<div class="banner err">${esc(ex.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Bei Claude anmelden";
+    await refreshLoginUi();
+  }
+});
+
+$("#login-submit").addEventListener("click", async () => {
+  const code = $("#login-code").value.trim();
+  if (!code) return;
+
+  const btn = $("#login-submit");
+  btn.disabled = true;
+  try {
+    await api("/claude-login/code", { method: "POST", body: JSON.stringify({ code }) });
+    $("#login-code").value = "";
+    // The exchange takes a moment; the poller reports the outcome.
+    setTimeout(async () => {
+      await loadSettings();
+      state.status = await api("/status");
+    }, 3000);
+  } catch (ex) {
+    $("#login-status").innerHTML = `<div class="banner err">${esc(ex.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    await refreshLoginUi();
+  }
+});
+
+$("#login-cancel").addEventListener("click", async () => {
+  await api("/claude-login/cancel", { method: "POST" }).catch(() => {});
+  await refreshLoginUi();
+});
+
+/* ---------------- admin password ---------------- */
+
+$("#pw-save").addEventListener("click", async () => {
+  const msg = $("#pw-msg");
+  try {
+    await api("/password", {
+      method: "POST",
+      body: JSON.stringify({ current: $("#pw-current").value, next: $("#pw-next").value }),
+    });
+    msg.innerHTML = '<div class="banner ok">Passwort geändert.</div>';
+    $("#pw-current").value = "";
+    $("#pw-next").value = "";
+  } catch (ex) {
+    msg.innerHTML = `<div class="banner err">${esc(ex.message)}</div>`;
+  }
+});

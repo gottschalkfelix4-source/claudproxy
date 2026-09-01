@@ -24,16 +24,19 @@
     Zum Ausprobieren ohne Zugangsdaten: BACKEND auf "mock" setzen. Der Proxy antwortet dann&#13;
     mit Echo-Antworten, sodass sich die Anbindung einer Anwendung vorab testen laesst.&#13;
     &#13;
-    EINRICHTUNG (Backend claude-code):&#13;
-    1. Container starten, dann auf der Docker-Seite unter dem Container "Console" oeffnen.&#13;
-    2. "claude setup-token" eingeben, die angezeigte URL im Browser oeffnen und anmelden.&#13;
-    3. Den zurueckgegebenen Token hier ins Feld "Claude OAuth Token" eintragen, Container neu starten.&#13;
-    Der Token ist ein Jahr gueltig.&#13;
+    EINRICHTUNG:&#13;
+    Alles laeuft ueber das Web-Interface - hier unten muss nichts ausgefuellt werden.&#13;
+    1. Container starten und http://[UNRAID-IP]:3000/admin oeffnen.&#13;
+    2. Anmelden. Ohne gesetztes Admin-Passwort wird beim ersten Start eines erzeugt und&#13;
+       ins Container-Log geschrieben.&#13;
+    3. Unter "Einstellungen" das Backend waehlen. Beim Claude-Abo dort auf&#13;
+       "Bei Claude anmelden" klicken: der Link fuehrt zur Anmeldung, den Code danach&#13;
+       zurueck ins Formular kopieren. Der Token wird automatisch gespeichert und ist&#13;
+       ein Jahr gueltig.&#13;
+    4. Unter "API-Keys" einen Key pro Anwendung anlegen.&#13;
     &#13;
-    WEB-INTERFACE: http://[UNRAID-IP]:3000/admin&#13;
-    Ohne gesetztes Admin-Passwort wird beim ersten Start eines erzeugt und ins Container-Log&#13;
-    geschrieben. Dort API-Keys anlegen - je mit Rate-Limit, Budget, Modell-Whitelist und&#13;
-    Ablaufdatum - und die Nutzung pro Key verfolgen.
+    Die Felder unten sind nur Startwerte. Aenderungen im Web-Interface haben Vorrang und&#13;
+    greifen sofort, ohne Neustart.
   </Overview>
   <Category>Tools: Productivity: Network:Other</Category>
   <WebUI>http://[IP]:[PORT:3000]/admin</WebUI>
@@ -96,7 +99,7 @@
     Target="CLAUDE_CODE_OAUTH_TOKEN"
     Default=""
     Mode=""
-    Description="Nur fuer Backend 'claude-code'. Im Container-Terminal mit 'claude setup-token' erzeugen und hier eintragen. Leer lassen, wenn stattdessen ein bereits angemeldetes .claude-Verzeichnis gemountet wird."
+    Description="Optional. Wird von der Anmeldung im Web-Interface automatisch gesetzt - nur ausfuellen, wenn du einen Token von anderswo eintragen willst."
     Type="Variable"
     Display="always"
     Required="false"
@@ -118,7 +121,7 @@
     Target="ADMIN_PASSWORD"
     Default=""
     Mode=""
-    Description="Passwort fuer das Web-Interface. Leer lassen, um beim ersten Start eines erzeugen zu lassen - es steht dann im Container-Log."
+    Description="Startpasswort fuer das Web-Interface. Leer lassen, um beim ersten Start eines erzeugen zu lassen - es steht dann im Container-Log. Eine spaetere Aenderung im Web-Interface bleibt bestehen."
     Type="Variable"
     Display="always"
     Required="false"

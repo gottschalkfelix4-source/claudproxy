@@ -9,6 +9,7 @@ import { estimateCost } from "../models.js";
 import { mapStopReason } from "../translate.js";
 import type { ChatRequest, ChatResult, Engine, StreamEvent, ToolCall, Usage } from "../types.js";
 import { EngineError } from "../types.js";
+import { onSettingChange, settings } from "../settings.js";
 
 /**
  * Sampling parameters were removed on the current generation and return a 400.
@@ -30,10 +31,19 @@ export class AnthropicApiEngine implements Engine {
   readonly name = "anthropic-api";
   private client: Anthropic | null = null;
 
+  constructor() {
+    // The SDK client binds the API key at construction, so drop it when the
+    // key is edited in the admin UI.
+    onSettingChange((key) => {
+      if (key === "ANTHROPIC_API_KEY") this.client = null;
+    });
+  }
+
   assertReady(): void {
-    if (!config.anthropicApiKey) {
+    if (!settings.anthropicApiKey) {
       throw new EngineError(
-        "BACKEND=anthropic-api requires ANTHROPIC_API_KEY to be set.",
+        "Für das Backend „Anthropic API-Key“ fehlt der Schlüssel. " +
+          "Trage ihn im Web-Interface unter Einstellungen ein.",
         503,
         "engine_not_configured",
       );
@@ -43,7 +53,7 @@ export class AnthropicApiEngine implements Engine {
   private get anthropic(): Anthropic {
     this.assertReady();
     this.client ??= new Anthropic({
-      apiKey: config.anthropicApiKey,
+      apiKey: settings.anthropicApiKey,
       timeout: config.requestTimeoutMs,
       maxRetries: 2,
     });
@@ -56,7 +66,7 @@ export class AnthropicApiEngine implements Engine {
       model: req.model,
       max_tokens: req.maxTokens,
       messages: req.messages,
-      thinking: config.exposeThinking
+      thinking: settings.exposeThinking
         ? { type: "adaptive", display: "summarized" }
         : { type: "adaptive" },
     };
@@ -71,10 +81,10 @@ export class AnthropicApiEngine implements Engine {
       if (req.topP !== undefined) body.top_p = req.topP;
     }
 
-    const effort = req.effort ?? config.defaultEffort;
+    const effort = req.effort ?? settings.defaultEffort;
     if (effort) body.output_config = { effort };
 
-    if (config.refusalFallbacks && FALLBACK_MODELS.has(req.model)) {
+    if (settings.refusalFallbacks && FALLBACK_MODELS.has(req.model)) {
       body.betas = [FALLBACK_BETA];
       body.fallbacks = "default";
     }

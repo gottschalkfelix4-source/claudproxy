@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { config } from "./config.js";
+import { settings } from "./settings.js";
 import {
   type ApiKeyRow,
   countRecentRequests,
@@ -26,7 +27,7 @@ declare global {
 /* ------------------------------------------------------------------ */
 
 export function clientIp(req: Request): string {
-  if (config.trustProxy) {
+  if (settings.trustProxy) {
     const fwd = req.headers["x-forwarded-for"];
     const first = Array.isArray(fwd) ? fwd[0] : fwd?.split(",")[0];
     if (first) return first.trim();
@@ -63,7 +64,7 @@ function extractKey(req: Request): string | null {
 }
 
 export function apiKeyAuth(req: Request, res: Response, next: NextFunction): void {
-  if (!config.requireAuth) return next();
+  if (!settings.requireAuth) return next();
 
   const raw = extractKey(req);
   if (!raw) {
@@ -167,7 +168,14 @@ function verifySession(token: string | undefined): boolean {
  */
 export function initAdminPassword(): { generated: string | null } {
   if (config.adminPassword) {
-    setSetting("admin_password_hash", hashKey(config.adminPassword));
+    const envHash = hashKey(config.adminPassword);
+    // Adopt the environment password on first boot and whenever the operator
+    // changes it — but not on every restart, which would silently undo a
+    // password set through the web UI.
+    if (getSetting("admin_password_env_hash") !== envHash) {
+      setSetting("admin_password_hash", envHash);
+      setSetting("admin_password_env_hash", envHash);
+    }
     return { generated: null };
   }
   if (getSetting("admin_password_hash")) return { generated: null };

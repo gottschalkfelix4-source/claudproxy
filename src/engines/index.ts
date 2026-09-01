@@ -4,6 +4,7 @@ import { EngineError } from "../types.js";
 import { AnthropicApiEngine } from "./anthropicApi.js";
 import { ClaudeCodeEngine } from "./claudeCode.js";
 import { MockEngine } from "./mock.js";
+import { settings } from "../settings.js";
 
 const engines: Record<string, Engine> = {
   "claude-code": new ClaudeCodeEngine(),
@@ -11,7 +12,7 @@ const engines: Record<string, Engine> = {
   mock: new MockEngine(),
 };
 
-export function getEngine(name = config.backend): Engine {
+export function getEngine(name = settings.backend): Engine {
   const engine = engines[name];
   if (!engine) {
     throw new EngineError(
@@ -25,7 +26,7 @@ export function getEngine(name = config.backend): Engine {
 
 /** Reports whether the configured backend can actually serve traffic. */
 export function engineStatus(): { backend: string; ready: boolean; detail: string } {
-  const backend = config.backend;
+  const backend = settings.backend;
   try {
     getEngine(backend).assertReady();
     return { backend, ready: true, detail: "ready" };

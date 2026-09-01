@@ -20,6 +20,16 @@ import {
 import { engineStatus, getEngine } from "../engines/index.js";
 import { MODELS, resolveModel } from "../models.js";
 import { buildChatRequest, type OpenAIChatRequest } from "../translate.js";
+import {
+  applySetting,
+  clearSetting,
+  describeFields,
+  settings,
+  SettingsError,
+} from "../settings.js";
+import * as claudeLogin from "../claudeLogin.js";
+import { hashKey, setSetting } from "../db.js";
+import os from "node:os";
 
 export const adminRouter = Router();
 
@@ -76,14 +86,15 @@ adminRouter.get("/status", (_req, res) => {
   const status = engineStatus();
   res.json({
     ...status,
-    defaultModel: config.defaultModel,
-    requireAuth: config.requireAuth,
-    maxTokensLimit: config.maxTokensLimit,
-    defaultMaxTokens: config.defaultMaxTokens,
-    exposeThinking: config.exposeThinking,
-    defaultEffort: config.defaultEffort || "(api default)",
-    logRetentionDays: config.logRetentionDays,
+    defaultModel: settings.defaultModel,
+    requireAuth: settings.requireAuth,
+    maxTokensLimit: settings.maxTokensLimit,
+    defaultMaxTokens: settings.defaultMaxTokens,
+    exposeThinking: settings.exposeThinking,
+    defaultEffort: settings.defaultEffort || "(api default)",
+    logRetentionDays: settings.logRetentionDays,
     models: MODELS,
+    claudeCredentials: claudeLogin.credentialsPresent(),
     uptimeSeconds: Math.floor(process.uptime()),
     version: process.env.APP_VERSION ?? "1.0.0",
   });
@@ -237,12 +248,12 @@ adminRouter.get("/logs", (req, res) => {
 
 adminRouter.post("/test", async (req: Request, res: Response) => {
   const b = req.body as OpenAIChatRequest;
-  const model = resolveModel(b.model ?? config.defaultModel) ?? config.defaultModel;
+  const model = resolveModel(b.model ?? settings.defaultModel) ?? settings.defaultModel;
 
   try {
     const chatReq = buildChatRequest({ ...b, stream: false }, model, {
-      defaultMaxTokens: Math.min(config.defaultMaxTokens, 4096),
-      maxTokensLimit: config.maxTokensLimit,
+      defaultMaxTokens: Math.min(settings.defaultMaxTokens, 4096),
+      maxTokensLimit: settings.maxTokensLimit,
     });
 
     const started = Date.now();
@@ -265,4 +276,154 @@ adminRouter.post("/test", async (req: Request, res: Response) => {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* settings                                                            */
+/* ------------------------------------------------------------------ */
+
+adminRouter.get("/settings", (_req, res) => {
+  res.json({ fields: describeFields() });
+});
+
+/** Applies a batch of settings; reports the first failure without partial writes. */
+adminRouter.put("/settings", (req, res) => {
+  const patch = req.body as Record<string, unknown>;
+  if (!patch || typeof patch !== "object") {
+    return res.status(400).json({ error: "Erwartet ein Objekt aus Schlüssel/Wert-Paaren." });
+  }
+
+  const entries = Object.entries(patch);
+
+  // Validate everything first, so a bad value cannot leave half the form applied.
+  for (const [key, value] of entries) {
+    try {
+      const field = describeFields().find((f) => f.key === key);
+      if (!field) throw new SettingsError(`Unbekannte Einstellung '${key}'.`);
+      // Secrets keep their stored value when the field is submitted empty.
+      if (field.type === "secret" && String(value ?? "") === "") continue;
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  try {
+    for (const [key, value] of entries) {
+      const field = describeFields().find((f) => f.key === key);
+      if (field?.type === "secret" && String(value ?? "") === "") continue;
+      applySetting(key, String(value ?? ""));
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(err instanceof SettingsError ? 400 : 500).json({ error: message });
+  }
+
+  res.json({ ok: true, fields: describeFields() });
+});
+
+/** Drops one override so the environment value applies again. */
+adminRouter.post("/settings/reset", (req, res) => {
+  const key = String((req.body as { key?: string })?.key ?? "");
+  try {
+    clearSetting(key);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+  res.json({ ok: true, fields: describeFields() });
+});
+
+adminRouter.post("/password", (req, res) => {
+  const b = req.body as { current?: string; next?: string };
+  if (!checkAdminPassword(String(b?.current ?? ""))) {
+    return res.status(401).json({ error: "Aktuelles Passwort stimmt nicht." });
+  }
+  const next = String(b?.next ?? "");
+  if (next.length < 8) {
+    return res.status(400).json({ error: "Das neue Passwort braucht mindestens 8 Zeichen." });
+  }
+  setSetting("admin_password_hash", hashKey(next));
+  res.json({ ok: true });
+});
+
+/* ------------------------------------------------------------------ */
+/* Claude sign-in                                                      */
+/* ------------------------------------------------------------------ */
+
+adminRouter.get("/claude-login/status", (_req, res) => {
+  res.json({ ...claudeLogin.status(), credentialsPresent: claudeLogin.credentialsPresent() });
+});
+
+adminRouter.post("/claude-login/start", async (_req, res) => {
+  try {
+    await claudeLogin.start();
+    res.json({ ok: true, ...claudeLogin.status() });
+  } catch (err) {
+    res.status(200).json({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      ...claudeLogin.status(),
+    });
+  }
+});
+
+adminRouter.post("/claude-login/code", (req, res) => {
+  const code = String((req.body as { code?: string })?.code ?? "");
+  try {
+    claudeLogin.submitCode(code);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+  res.json({ ok: true, ...claudeLogin.status() });
+});
+
+adminRouter.post("/claude-login/cancel", (_req, res) => {
+  claudeLogin.cancel();
+  res.json({ ok: true, ...claudeLogin.status() });
+});
+
+/* ------------------------------------------------------------------ */
+/* endpoint discovery                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Non-loopback IPv4 addresses of the container, for the "reachable at" list. */
+function localAddresses(): string[] {
+  const out: string[] = [];
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === "IPv4" && !entry.internal) out.push(entry.address);
+    }
+  }
+  return out;
+}
+
+adminRouter.get("/endpoints", (req, res) => {
+  // Whatever host the admin is currently browsing is the address that
+  // demonstrably works, so it leads the list.
+  const proto = (req.headers["x-forwarded-proto"] as string)?.split(",")[0] || req.protocol;
+  const host = req.headers.host ?? `localhost:${config.port}`;
+  const primary = `${proto}://${host}`;
+
+  res.json({
+    primary: {
+      baseUrl: `${primary}/v1`,
+      chat: `${primary}/v1/chat/completions`,
+      models: `${primary}/v1/models`,
+      health: `${primary}/health`,
+      admin: `${primary}/admin`,
+    },
+    alternatives: [
+      {
+        label: "Aus einem anderen Docker-Container im selben Netz",
+        baseUrl: `http://claude-proxy:${config.port}/v1`,
+        hint: "Container-Name als Hostname; beide müssen im selben Docker-Netz hängen.",
+      },
+      ...localAddresses().map((ip) => ({
+        label: `Über die Container-IP ${ip}`,
+        baseUrl: `http://${ip}:${config.port}/v1`,
+        hint: "Nur innerhalb des Docker-Netzes erreichbar.",
+      })),
+    ],
+    port: config.port,
+    requireAuth: settings.requireAuth,
+  });
 });

@@ -34,6 +34,7 @@ import type {
   Usage,
 } from "../types.js";
 import { EngineError } from "../types.js";
+import { settings } from "../settings.js";
 
 /** Every built-in tool, denied so the proxy behaves like a plain chat endpoint. */
 const ALL_TOOLS = [
@@ -125,7 +126,7 @@ export class ClaudeCodeEngine implements Engine {
   readonly name = "claude-code";
 
   assertReady(): void {
-    const hasToken = Boolean(config.claudeCodeOAuthToken);
+    const hasToken = Boolean(settings.claudeCodeOAuthToken);
     const hasCredentialsFile = (() => {
       try {
         return fs.existsSync(config.claudeConfigDir + "/.credentials.json");
@@ -136,8 +137,8 @@ export class ClaudeCodeEngine implements Engine {
 
     if (!hasToken && !hasCredentialsFile) {
       throw new EngineError(
-        "The claude-code backend has no credentials. Set CLAUDE_CODE_OAUTH_TOKEN " +
-          "(from `claude setup-token`) or mount an authenticated ~/.claude directory.",
+        "Für das Backend „Claude-Abo“ fehlen die Zugangsdaten. " +
+          "Melde dich im Web-Interface unter Einstellungen → Bei Claude anmelden an.",
         503,
         "engine_not_configured",
       );
@@ -149,8 +150,8 @@ export class ClaudeCodeEngine implements Engine {
       ...(process.env as Record<string, string>),
       CLAUDE_CONFIG_DIR: config.claudeConfigDir,
     };
-    if (config.claudeCodeOAuthToken) {
-      env.CLAUDE_CODE_OAUTH_TOKEN = config.claudeCodeOAuthToken;
+    if (settings.claudeCodeOAuthToken) {
+      env.CLAUDE_CODE_OAUTH_TOKEN = settings.claudeCodeOAuthToken;
     }
     // An API key in the environment would shadow the subscription OAuth token.
     delete env.ANTHROPIC_API_KEY;
@@ -271,7 +272,7 @@ export class ClaudeCodeEngine implements Engine {
             if (delta.type === "text_delta" && delta.text) {
               streamedChars += delta.text.length;
               yield { type: "text", text: delta.text };
-            } else if (delta.type === "thinking_delta" && config.exposeThinking && delta.thinking) {
+            } else if (delta.type === "thinking_delta" && settings.exposeThinking && delta.thinking) {
               yield { type: "reasoning", text: delta.thinking };
             }
           } else if (event.type === "message_delta") {

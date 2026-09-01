@@ -7,6 +7,7 @@ import { initAdminPassword } from "./auth.js";
 import { config } from "./config.js";
 import { pruneOldRequests } from "./db.js";
 import { engineStatus } from "./engines/index.js";
+import { settings } from "./settings.js";
 import { adminRouter } from "./routes/admin.js";
 import { v1Router } from "./routes/v1.js";
 
@@ -15,7 +16,8 @@ const webRoot = path.join(here, "web");
 
 const app = express();
 
-if (config.trustProxy) app.set("trust proxy", true);
+// Always on: the runtime setting decides whether the header is trusted.
+app.set("trust proxy", true);
 app.disable("x-powered-by");
 
 // Bodies can be large when clients send base64 images.
@@ -114,8 +116,9 @@ const { generated } = initAdminPassword();
 
 fs.mkdirSync(config.workDir, { recursive: true });
 
-pruneOldRequests();
-setInterval(pruneOldRequests, 6 * 60 * 60 * 1000).unref();
+const prune = () => pruneOldRequests(settings.logRetentionDays);
+prune();
+setInterval(prune, 6 * 60 * 60 * 1000).unref();
 
 const server = app.listen(config.port, config.host, () => {
   const status = engineStatus();
@@ -127,7 +130,7 @@ const server = app.listen(config.port, config.host, () => {
     `  Backend     ${status.backend} (${status.ready ? "ready" : "NOT READY"})`,
   ];
   if (!status.ready) banner.push(`              ${status.detail}`);
-  banner.push(`  Auth        ${config.requireAuth ? "API key required" : "DISABLED"}`);
+  banner.push(`  Auth        ${settings.requireAuth ? "API key required" : "DISABLED"}`);
   if (generated) {
     banner.push(
       "",

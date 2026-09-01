@@ -272,8 +272,9 @@ export function countRecentRequests(keyId: string, windowMs = 60_000): number {
   return row.n;
 }
 
-export function pruneOldRequests(): void {
-  if (config.logRetentionDays <= 0) return;
-  const cutoff = Date.now() - config.logRetentionDays * 86_400_000;
+/** Takes the retention as an argument: settings.ts imports this module. */
+export function pruneOldRequests(retentionDays: number): void {
+  if (retentionDays <= 0) return;
+  const cutoff = Date.now() - retentionDays * 86_400_000;
   db.prepare("DELETE FROM requests WHERE ts < ?").run(cutoff);
 }

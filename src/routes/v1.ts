@@ -15,6 +15,7 @@ import {
 } from "../translate.js";
 import type { ChatRequest, FinishReason, Usage } from "../types.js";
 import { EngineError } from "../types.js";
+import { settings } from "../settings.js";
 
 export const v1Router = Router();
 
@@ -62,8 +63,8 @@ function prepare(req: Request, res: Response): Prepared | null {
     return null;
   }
 
-  const requestedModel = body.model ?? config.defaultModel;
-  const model = resolveModel(requestedModel) ?? resolveModel(config.defaultModel);
+  const requestedModel = body.model ?? settings.defaultModel;
+  const model = resolveModel(requestedModel) ?? resolveModel(settings.defaultModel);
 
   if (!model) {
     sendError(
@@ -83,8 +84,8 @@ function prepare(req: Request, res: Response): Prepared | null {
 
   try {
     const chatReq = buildChatRequest(body, model, {
-      defaultMaxTokens: config.defaultMaxTokens,
-      maxTokensLimit: config.maxTokensLimit,
+      defaultMaxTokens: settings.defaultMaxTokens,
+      maxTokensLimit: settings.maxTokensLimit,
     });
     return { chatReq, model, requestedModel };
   } catch (err) {
@@ -114,7 +115,7 @@ function record(
     keyId,
     model: prep.requestedModel,
     resolvedModel: prep.model,
-    engine: config.backend,
+    engine: settings.backend,
     status,
     streamed,
     promptTokens: usage.promptTokens,

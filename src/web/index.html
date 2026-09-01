@@ -38,6 +38,9 @@
           <span class="label">Playground</span>
         </button>
         <button class="nav-item" data-page="connect"><span class="label">Anbinden</span></button>
+        <button class="nav-item" data-page="settings">
+          <span class="label">Einstellungen</span>
+        </button>
         <div class="sidebar-foot">
           <button class="ghost" id="logout" style="width: 100%">Abmelden</button>
         </div>
@@ -63,6 +66,26 @@
           </div>
 
           <div id="engine-banner"></div>
+
+          <div class="card endpoint-card" style="margin-bottom: 14px">
+            <div class="row wrap" style="align-items: flex-start; gap: 20px">
+              <div style="flex: 1 1 320px; min-width: 0">
+                <div class="label" style="margin-bottom: 6px">OpenAI-Endpunkt</div>
+                <div class="copy-row">
+                  <code id="ep-base" class="endpoint-url">–</code>
+                  <button class="sm" data-copy="ep-base">Kopieren</button>
+                </div>
+                <div class="muted" style="font-size: 12px; margin-top: 7px">
+                  Diese Adresse in deiner Anwendung als <em>Base URL</em> eintragen,
+                  dazu einen API-Key. <a href="#connect" data-goto="connect">Beispiele ansehen</a>
+                </div>
+              </div>
+              <div style="flex: 0 1 300px; min-width: 0">
+                <div class="label" style="margin-bottom: 6px">Auch erreichbar unter</div>
+                <div id="ep-alternatives" class="muted" style="font-size: 12px"></div>
+              </div>
+            </div>
+          </div>
 
           <div class="grid cols-4" style="margin-bottom: 14px">
             <div class="card stat">
@@ -178,6 +201,11 @@
           </div>
 
           <div class="card" style="margin-bottom: 14px">
+            <h3>Alle Endpunkte</h3>
+            <div class="table-wrap"><table id="ep-table"></table></div>
+          </div>
+
+          <div class="card" style="margin-bottom: 14px">
             <h3>Zugangsdaten</h3>
             <div class="grid cols-2">
               <label class="field">
@@ -214,6 +242,75 @@
                 Aider, LangChain, LlamaIndex, Continue, Open WebUI.
               </p>
             </div>
+          </div>
+        </section>
+
+        <!-- settings -->
+        <section class="page hidden" id="page-settings">
+          <div class="page-head">
+            <div>
+              <h2>Einstellungen</h2>
+              <p>Änderungen greifen sofort — ein Neustart ist nicht nötig.</p>
+            </div>
+            <button class="primary" id="save-settings">Speichern</button>
+          </div>
+
+          <div id="settings-msg"></div>
+
+          <!-- Claude-Anmeldung -->
+          <div class="card" id="claude-login-card" style="margin-bottom: 14px">
+            <h3>Claude-Anmeldung</h3>
+            <p class="muted" style="margin-top: -6px; font-size: 13px">
+              Für das Backend „Claude-Abo“. Meldet den Proxy mit deinem Pro/Max-Konto an,
+              ohne Abrechnung pro Token.
+            </p>
+
+            <div id="login-status"></div>
+
+            <div id="login-step-start">
+              <button class="primary" id="login-start">Bei Claude anmelden</button>
+            </div>
+
+            <div id="login-step-url" class="hidden">
+              <div class="banner warn" style="margin-top: 12px">
+                <strong>Schritt 1</strong> — Link öffnen, mit deinem Claude-Konto anmelden
+                und den angezeigten Code kopieren.
+              </div>
+              <div class="copy-row">
+                <a id="login-url" class="endpoint-url" target="_blank" rel="noopener noreferrer"></a>
+                <button class="sm" data-copy="login-url">Kopieren</button>
+              </div>
+              <label class="field" style="margin-top: 16px; max-width: 460px">
+                <span class="lbl">Schritt 2 — Code hier einfügen</span>
+                <input id="login-code" placeholder="Code aus dem Browser" autocomplete="off" />
+              </label>
+              <div class="row">
+                <button class="primary" id="login-submit">Code bestätigen</button>
+                <button class="ghost" id="login-cancel">Abbrechen</button>
+              </div>
+            </div>
+
+            <pre class="snippet hidden" id="login-log" style="margin-top: 14px"></pre>
+          </div>
+
+          <div id="settings-groups"></div>
+
+          <!-- Passwort -->
+          <div class="card" style="margin-top: 14px">
+            <h3>Admin-Passwort ändern</h3>
+            <div id="pw-msg"></div>
+            <div class="grid cols-2" style="max-width: 620px">
+              <label class="field">
+                <span class="lbl">Aktuelles Passwort</span>
+                <input type="password" id="pw-current" autocomplete="current-password" />
+              </label>
+              <label class="field">
+                <span class="lbl">Neues Passwort</span>
+                <input type="password" id="pw-next" autocomplete="new-password" />
+                <span class="hint">Mindestens 8 Zeichen.</span>
+              </label>
+            </div>
+            <button id="pw-save">Passwort ändern</button>
           </div>
         </section>
       </main>
