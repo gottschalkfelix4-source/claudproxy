@@ -430,6 +430,16 @@ Ein neuer Versuch ist sofort möglich, der Link bleibt gültig.
 **Die Anmeldung hängt bei „Code wird geprüft"** — Nach 90 Sekunden ohne Antwort
 kehrt das Formular von selbst zur Code-Eingabe zurück.
 
+**„Die Claude-CLI wurde unerwartet beendet"** — Der Hintergrundprozess ist gestorben,
+bevor der Code verarbeitet werden konnte. Das Protokoll unter der Anmeldung zeigt
+die letzte Ausgabe und den Exit-Code. Anmeldung neu starten.
+
+**Die Anmeldung schlägt ohne erkennbaren Grund fehl** — Auf **Verbindung prüfen**
+klicken (neben dem Anmelde-Button). Die Autorisierungs-URL wird lokal erzeugt und
+braucht kein Netz; erst der Austausch des Codes geht nach außen. Ein blockierter
+Egress oder kaputtes DNS im Container sieht deshalb genau so aus, als würde der
+Server nicht antworten — die Prüfung trennt beides.
+
 ---
 
 ## Aufbau

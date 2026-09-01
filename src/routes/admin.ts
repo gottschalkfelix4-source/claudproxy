@@ -31,6 +31,7 @@ import * as claudeLogin from "../claudeLogin.js";
 import { hashKey, setSetting } from "../db.js";
 import os from "node:os";
 import { BUILD } from "../version.js";
+import { runDiagnostics } from "../diagnostics.js";
 
 export const adminRouter = Router();
 
@@ -429,4 +430,16 @@ adminRouter.get("/endpoints", (req, res) => {
     port: config.port,
     requireAuth: settings.requireAuth,
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* connectivity diagnostics                                            */
+/* ------------------------------------------------------------------ */
+
+adminRouter.get("/diagnostics", async (_req, res) => {
+  try {
+    res.json(await runDiagnostics());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });

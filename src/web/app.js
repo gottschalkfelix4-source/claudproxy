@@ -878,6 +878,7 @@ async function refreshLoginUi() {
   const stepStart = $("#login-step-start");
   const stepUrl = $("#login-step-url");
   const log = $("#login-log");
+  if (!box) return;
 
   const tokenField = state.fields.find((f) => f.key === "CLAUDE_CODE_OAUTH_TOKEN");
   const haveCredentials = tokenField?.isSet || s.credentialsPresent;
@@ -917,11 +918,16 @@ async function refreshLoginUi() {
     }
   }
 
+  const wrap = $("#login-log-wrap");
   if (s.tail) {
     log.textContent = s.tail;
-    log.classList.remove("hidden");
+    wrap.classList.remove("hidden");
+    // Open it unprompted when something went wrong — that is when it matters.
+    if (s.state === "error" || (s.message && s.state === "waiting_for_code")) {
+      wrap.open = true;
+    }
   } else {
-    log.classList.add("hidden");
+    wrap.classList.add("hidden");
   }
 
   const active = s.state === "waiting_for_code" || s.state === "exchanging";
@@ -993,5 +999,51 @@ $("#pw-save").addEventListener("click", async () => {
     $("#pw-next").value = "";
   } catch (ex) {
     msg.innerHTML = `<div class="banner err">${esc(ex.message)}</div>`;
+  }
+});
+
+/* ---------------- connectivity check ---------------- */
+
+$("#diag-run").addEventListener("click", async () => {
+  const btn = $("#diag-run");
+  const out = $("#diag-result");
+  btn.disabled = true;
+  btn.textContent = "Prüft …";
+  out.innerHTML = '<div class="banner warn">Prüfe die Verbindung zu den Anthropic-Hosts …</div>';
+
+  try {
+    const d = await api("/diagnostics");
+    const rows = d.hosts
+      .map((h) => {
+        const dnsOk = h.dns.ok;
+        const netOk = h.https.ok;
+        const badge = !dnsOk
+          ? '<span class="pill err">DNS fehlgeschlagen</span>'
+          : !netOk
+            ? '<span class="pill err">nicht erreichbar</span>'
+            : `<span class="pill ok">erreichbar</span> <span class="muted">${h.https.ms} ms</span>`;
+        const detail = !dnsOk
+          ? esc(h.dns.error || "")
+          : !netOk
+            ? esc(h.https.error || "")
+            : "";
+        return `<tr>
+          <td><code>${esc(h.host)}</code><br>
+              <span class="muted" style="font-size:11.5px">${esc(h.purpose)}</span></td>
+          <td class="right">${badge}${
+            detail ? `<br><span class="muted" style="font-size:11.5px">${detail}</span>` : ""
+          }</td>
+        </tr>`;
+      })
+      .join("");
+
+    out.innerHTML =
+      `<div class="banner ${d.reachable ? "ok" : "err"}">${esc(d.summary)}</div>` +
+      `<div class="table-wrap"><table><tbody>${rows}</tbody></table></div>`;
+  } catch (ex) {
+    out.innerHTML = `<div class="banner err">${esc(ex.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Verbindung prüfen";
   }
 });

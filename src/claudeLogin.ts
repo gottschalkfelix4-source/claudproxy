@@ -122,21 +122,43 @@ function credentialsMtime(): number {
 /* ------------------------------------------------------------------ */
 
 export function status() {
+  // Catch a process that died without the close handler having been able to
+  // report it, so the UI never invites a code that has nowhere to go.
+  const proc = session.proc;
+  if (
+    (session.state === "waiting_for_code" || session.state === "exchanging") &&
+    proc &&
+    (proc.exitCode !== null || proc.signalCode !== null)
+  ) {
+    finish(
+      "error",
+      `Die Claude-CLI wurde unerwartet beendet (Code ${proc.exitCode ?? proc.signalCode}). ` +
+        "Starte die Anmeldung neu; das Protokoll unten zeigt die letzte Ausgabe.",
+    );
+  }
+
   return {
     state: session.state,
     url: session.url,
     message: session.message,
-    /** Last few readable lines, for diagnosing a failed attempt. */
-    tail: session.state === "error" ? tail(session.output) : undefined,
+    /**
+     * Readable transcript of what the CLI actually printed. Always present, not
+     * only on error: a stalled login looks identical from the outside whatever
+     * the cause, and this is the only way to tell those causes apart without
+     * shell access to the host.
+     */
+    tail: session.output ? tail(session.output) : undefined,
   };
 }
 
-function tail(output: string): string {
-  const lines = stripAnsi(output)
+/** Drops spinner frames and cursor-only redraws, which carry no information. */
+function tail(output: string, lines = 16): string {
+  return stripAnsi(output)
     .split("\n")
     .map((l) => l.trim())
-    .filter(Boolean);
-  return lines.slice(-8).join("\n");
+    .filter((l) => l && !/^[*.·•✱✲✳✴✵✶✷✸✹✺✻✽✾✿❀]+$/u.test(l))
+    .slice(-lines)
+    .join("\n");
 }
 
 function finish(state: LoginState, message: string): void {
@@ -204,14 +226,25 @@ export function start(): Promise<{ url: string }> {
     let settled = false;
 
     const fail = (msg: string) => {
+      // The session state must always reflect reality, even after the promise
+      // has settled. Returning early here (the promise resolves as soon as the
+      // URL appears, so `settled` is true for the whole rest of the sign-in)
+      // meant a CLI that died afterwards was swallowed entirely: the UI kept
+      // saying "waiting for code", and the code was later written into a dead
+      // pipe — indistinguishable from the server never answering.
+      finish("error", msg);
       if (settled) return;
       settled = true;
-      finish("error", msg);
       reject(new Error(msg));
     };
 
     const absorb = (chunk: Buffer) => {
-      session.output = (session.output + chunk.toString("utf8")).slice(-MAX_OUTPUT);
+      const grown = session.output + chunk.toString("utf8");
+      const dropped = Math.max(0, grown.length - MAX_OUTPUT);
+      session.output = dropped ? grown.slice(dropped) : grown;
+      // codeMark is an index into this buffer, so it has to move with the trim;
+      // otherwise it points past the end and the rejection check reads nothing.
+      if (dropped) session.codeMark = Math.max(0, session.codeMark - dropped);
 
       if (!session.url) {
         const url = extractAuthUrl(session.output);
@@ -245,6 +278,13 @@ export function start(): Promise<{ url: string }> {
 
     proc.stdout.on("data", absorb);
     proc.stderr.on("data", absorb);
+
+    // An EPIPE on a closed stdin must not take the whole proxy down.
+    proc.stdin.on("error", (err) => {
+      if (session.state === "exchanging") {
+        backToCodeEntry(`Die Eingabe an die Claude-CLI schlug fehl: ${err.message}`);
+      }
+    });
 
     proc.on("error", (err) => fail(`Konnte die Claude-CLI nicht starten: ${err.message}`));
 
@@ -297,9 +337,23 @@ export function start(): Promise<{ url: string }> {
 
 /** Feeds the code from the browser into the waiting CLI. */
 export function submitCode(code: string): void {
-  if (session.state !== "waiting_for_code" || !session.proc) {
+  const proc = session.proc;
+  if (session.state !== "waiting_for_code" || !proc) {
     throw new Error("Es läuft gerade keine Anmeldung, die auf einen Code wartet.");
   }
+
+  // A finished process still sits in session.proc; writing to it silently goes
+  // nowhere and the UI would wait out the full timeout for an answer that can
+  // never come. Say so instead.
+  if (proc.exitCode !== null || proc.signalCode !== null || proc.killed) {
+    finish(
+      "error",
+      "Die Anmeldung ist nicht mehr aktiv — der Hintergrundprozess wurde beendet. " +
+        "Starte die Anmeldung neu.",
+    );
+    throw new Error(session.message ?? "Anmeldung nicht mehr aktiv.");
+  }
+
   const clean = code.trim();
   if (!clean) throw new Error("Kein Code eingegeben.");
 
@@ -310,7 +364,13 @@ export function submitCode(code: string): void {
   // Carriage return, not newline. The CLI puts the PTY in raw mode and only
   // treats CR as Enter — a bare LF is swallowed and the code is never
   // submitted, which looks exactly like the server never answering.
-  session.proc.stdin.write(clean + "\r");
+  proc.stdin.write(clean + "\r", (err) => {
+    if (err) {
+      backToCodeEntry(
+        `Der Code konnte nicht an die Claude-CLI übergeben werden: ${err.message}`,
+      );
+    }
+  });
 
   // The CLI says nothing while it talks to the OAuth server, so cap the wait
   // and hand control back instead of leaving the UI on "checking…" forever.
